@@ -13,12 +13,13 @@ export interface BuildPayloadOptions {
   recording?: RecordingResult
   anonId?: string
   anonEmail?: string
+  anonName?: string
   breadcrumbs?: Breadcrumb[]
   sessionRecordings?: Record<string, SessionRecordingData>
 }
 
 export function buildPayload(options: BuildPayloadOptions): FeedbackPayload {
-  const { description, pageContext, consoleErrors, annotation, user, recording, anonId, anonEmail, breadcrumbs, sessionRecordings } = options
+  const { description, pageContext, consoleErrors, annotation, user, recording, anonId, anonEmail, anonName, breadcrumbs, sessionRecordings } = options
 
   const capturedContext = filterSensitiveValue({
     description,
@@ -44,10 +45,11 @@ export function buildPayload(options: BuildPayloadOptions): FeedbackPayload {
     user_email: user?.email,
     user_name: user?.name,
     // An identified user carries no anonymous identity: the host has vouched
-    // for who the reporter is, so attaching the stored anon id/email would tie
+    // for who the reporter is, so attaching the stored anon id/email/name would tie
     // that account to a stranger's earlier anonymous submissions.
     reporter_external_id: user ? undefined : anonId,
     reporter_email: user ? undefined : anonEmail,
+    reporter_name: user ? undefined : anonName,
     metadata: sessionRecordings && Object.keys(sessionRecordings).length > 0
       ? { session_recordings: sessionRecordings }
       : undefined,

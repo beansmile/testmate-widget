@@ -1420,9 +1420,87 @@ describe('MakeThisBetter widget flow', () => {
     })
   })
 
+  async function captureOnSuccessCard(fill: { name?: string; email?: string }, storedName?: string) {
+    window.localStorage.clear()
+    if (storedName) window.localStorage.setItem('mtb_reporter_name', storedName)
+    const target = document.createElement('button')
+    target.id = 'export-btn'
+    document.body.appendChild(target)
+    document.elementsFromPoint = vi.fn(() => [target])
+
+    const patchCalls: { url: string; init: RequestInit }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        patchCalls.push({ url: String(url), init: init! })
+        return new Response(null, { status: 204 })
+      }
+      return sessionFlowResponse(url, init, {
+        id: 'FB-1',
+        status: 'received',
+        project_id: 'acme',
+        board_url: 'https://acme.example.com',
+        identity_token: 'tok_anon',
+      })
+    })
+
+    MakeThisBetter.init({
+      projectKey: 'acme',
+      apiUrl: 'https://api.example.com/api/v1',
+    })
+
+    const shadow = document.getElementById('mtb-widget-host')!.shadowRoot!
+    openCardTypeAndSubmit(shadow, 'Anonymous feedback')
+    await awaitSubmissionSuccess(shadow)
+
+    await vi.waitFor(() => {
+      expect(shadow.querySelector('.mtb-chat-name-input')).not.toBeNull()
+    }, { timeout: 5000 })
+
+    const nameInput = shadow.querySelector<HTMLInputElement>('.mtb-chat-name-input')!
+    const emailInput = shadow.querySelector<HTMLInputElement>('.mtb-chat-email-input')!
+    const prefilledName = nameInput.value
+    if (fill.name !== undefined) {
+      nameInput.value = fill.name
+      nameInput.dispatchEvent(new Event('input'))
+    }
+    if (fill.email !== undefined) {
+      emailInput.value = fill.email
+      emailInput.dispatchEvent(new Event('input'))
+    }
+    shadow.querySelector<HTMLButtonElement>('.mtb-chat-email-submit')!.click()
+
+    await vi.waitFor(() => {
+      expect(patchCalls.length).toBe(1)
+    })
+    return { patchCalls, prefilledName }
+  }
+
+  it('captures a reporter name alone and remembers it', async () => {
+    const { patchCalls } = await captureOnSuccessCard({ name: '  Ada Lovelace ' })
+
+    expect(patchCalls[0].url).toBe('https://api.example.com/api/v1/widget/feedbacks/FB-1/reporter')
+    expect(JSON.parse(String(patchCalls[0].init.body))).toEqual({ reporter: { name: 'Ada Lovelace' } })
+    await vi.waitFor(() => {
+      expect(window.localStorage.getItem('mtb_reporter_name')).toBe('Ada Lovelace')
+    })
+    expect(window.localStorage.getItem('mtb_reporter_email')).toBeNull()
+  })
+
+  it('captures name and email together, prefilling a remembered name', async () => {
+    const { patchCalls, prefilledName } = await captureOnSuccessCard({ email: 'ada@example.com' }, 'Ada')
+
+    expect(prefilledName).toBe('Ada')
+    expect(JSON.parse(String(patchCalls[0].init.body))).toEqual({ reporter: { email: 'ada@example.com', name: 'Ada' } })
+    await vi.waitFor(() => {
+      expect(window.localStorage.getItem('mtb_reporter_email')).toBe('ada@example.com')
+    })
+    expect(window.localStorage.getItem('mtb_reporter_name')).toBe('Ada')
+  })
+
   it('auto-includes the remembered email and skips the capture form', async () => {
     window.localStorage.clear()
     window.localStorage.setItem('mtb_reporter_email', 'anon@example.com')
+    window.localStorage.setItem('mtb_reporter_name', 'Ada')
     const target = document.createElement('button')
     target.id = 'export-btn'
     document.body.appendChild(target)
@@ -1457,6 +1535,7 @@ describe('MakeThisBetter widget flow', () => {
 
     const formData = capturedBody as unknown as FormData
     expect(formData.get('feedback[reporter_email]')).toBe('anon@example.com')
+    expect(formData.get('feedback[reporter_name]')).toBe('Ada')
     expect(shadow.querySelector('.mtb-chat-email-input')).toBeNull()
   })
 
@@ -1554,6 +1633,7 @@ describe('MakeThisBetter widget flow', () => {
     window.localStorage.clear()
     window.localStorage.setItem('mtb_anon_id', 'anon_11111111-2222-3333-4444-555555555555')
     window.localStorage.setItem('mtb_reporter_email', 'anon@example.com')
+    window.localStorage.setItem('mtb_reporter_name', 'Ada')
     const target = document.createElement('button')
     target.id = 'export-btn'
     document.body.appendChild(target)
@@ -1585,9 +1665,12 @@ describe('MakeThisBetter widget flow', () => {
     expect(formData.get('feedback[user_email]')).toBe('host@example.com')
     expect(formData.get('feedback[reporter_external_id]')).toBeNull()
     expect(formData.get('feedback[reporter_email]')).toBeNull()
+    expect(formData.get('feedback[reporter_name]')).toBeNull()
+    expect(formData.get('feedback[user_name]')).toBeNull()
 
     expect(window.localStorage.getItem('mtb_anon_id')).toBe('anon_11111111-2222-3333-4444-555555555555')
     expect(window.localStorage.getItem('mtb_reporter_email')).toBe('anon@example.com')
+    expect(window.localStorage.getItem('mtb_reporter_name')).toBe('Ada')
   })
 
   it('resumes the anonymous identity after the host user config disappears', async () => {

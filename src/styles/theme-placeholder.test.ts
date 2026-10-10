@@ -23,7 +23,7 @@ describe('theme placeholder color', () => {
 
   // The chat card has its own placeholder token, themed alongside the shared
   // one; the draw bar is always-light and keeps a literal grey on purpose.
-  it.each(['.mtb-chat-input::placeholder', '.mtb-chat-email-input::placeholder'])(
+  it.each(['.mtb-chat-input::placeholder', '.mtb-chat-email-input::placeholder', '.mtb-chat-name-input::placeholder'])(
     'themes %s through the chat token',
     (selector) => {
       expect(rule(selector)).toContain('color: var(--mtb-chat-placeholder-fg)')

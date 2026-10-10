@@ -37,6 +37,10 @@ export default {
     track_feedback: 'Track your feedback',
     email_cta: 'Email me when it\'s fixed',
     notify: 'Notify',
+    name_label: 'Name (optional)',
+    name_placeholder: 'Your name',
+    name_saved: "Thanks, we've saved your name.",
+    name_error: "Couldn't save your name. Please try again.",
   },
   error: {
     submit: 'Failed to submit. Please try again.',

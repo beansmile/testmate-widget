@@ -37,6 +37,10 @@ export default {
     track_feedback: 'Suivre mon retour',
     email_cta: 'M’avertir par e-mail une fois corrigé',
     notify: 'Avertir',
+    name_label: 'Nom (facultatif)',
+    name_placeholder: 'Votre nom',
+    name_saved: 'Merci, votre nom est enregistré.',
+    name_error: "Impossible d'enregistrer votre nom. Veuillez réessayer.",
   },
   error: {
     submit: "Échec de l'envoi. Veuillez réessayer.",

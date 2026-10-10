@@ -141,6 +141,21 @@ describe('buildPayload', () => {
     expect(result.user_email).toBe('host@example.com')
   })
 
+  it('includes reporter_name when anonName is provided without user', () => {
+    const result = buildPayload({ description: 'Feedback', pageContext, consoleErrors: [], annotation: null, user: undefined, anonId: 'anon_abc-123', anonName: 'Ada' })
+
+    expect(result.reporter_name).toBe('Ada')
+  })
+
+  it('ignores anonName when user is provided', () => {
+    const user: MakeThisBetterConfig['user'] = { id: 'usr_123', name: 'Host Name' }
+
+    const result = buildPayload({ description: 'Feedback', pageContext, consoleErrors: [], annotation: null, user, anonName: 'Ada' })
+
+    expect(result.reporter_name).toBeUndefined()
+    expect(result.user_name).toBe('Host Name')
+  })
+
   it('includes recording data when recording is provided', () => {
     const recording: RecordingResult = {
       events: [{ type: 3, data: { source: 2 } }],

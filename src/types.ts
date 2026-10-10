@@ -108,10 +108,20 @@ export interface FeedbackPayload {
   user_name?: string
   reporter_external_id?: string
   reporter_email?: string
+  reporter_name?: string
   recording_events?: Record<string, unknown>[]
   recording_duration?: number
   breadcrumbs?: Breadcrumb[]
   metadata?: Record<string, unknown>
+}
+
+/**
+ * Body of `PATCH /widget/feedbacks/:id/reporter` (`{ reporter: ReporterDetails }`).
+ * Only fields the anonymous reporter filled in are sent, trimmed and non-empty.
+ */
+export interface ReporterDetails {
+  email?: string
+  name?: string
 }
 
 export interface FeedbackResponse {

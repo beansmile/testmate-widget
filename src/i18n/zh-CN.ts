@@ -37,6 +37,10 @@ export default {
     track_feedback: '查看处理进度',
     email_cta: '解决后邮件通知我',
     notify: '通知我',
+    name_label: '姓名（可选）',
+    name_placeholder: '你的名字',
+    name_saved: '已保存你的名字。',
+    name_error: '名字保存失败，请重试。',
   },
   error: {
     submit: '提交失败，请重试。',

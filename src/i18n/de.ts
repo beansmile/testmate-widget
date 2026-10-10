@@ -37,6 +37,10 @@ export default {
     track_feedback: 'Feedback verfolgen',
     email_cta: 'E-Mail, sobald es behoben ist',
     notify: 'Melden',
+    name_label: 'Name (optional)',
+    name_placeholder: 'Ihr Name',
+    name_saved: 'Danke, Ihr Name wurde gespeichert.',
+    name_error: 'Name konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
   },
   error: {
     submit: 'Senden fehlgeschlagen. Bitte versuchen Sie es erneut.',

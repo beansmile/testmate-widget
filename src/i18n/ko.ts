@@ -37,6 +37,10 @@ export default {
     track_feedback: '처리 상황 보기',
     email_cta: '해결되면 이메일로 알림',
     notify: '알림',
+    name_label: '이름 (선택)',
+    name_placeholder: '이름',
+    name_saved: '이름을 저장했습니다.',
+    name_error: '이름을 저장하지 못했습니다. 다시 시도해 주세요.',
   },
   error: {
     submit: '제출에 실패했습니다. 다시 시도해 주세요.',

@@ -3,7 +3,7 @@ import type { BaseScreenshot } from '../screenshot/capture'
 import { collectSessionRecordings } from '../context/session-recordings'
 import { collectPageContext } from '../context/collector'
 import { buildPayload } from './payload'
-import { getAnonId, getStoredReporterEmail } from './anon-id'
+import { getAnonId, getStoredReporterEmail, getStoredReporterName } from './anon-id'
 import type { ApiClient } from '../api/client'
 import type { ConsoleErrorCollector } from '../context/console'
 import type { BreadcrumbCollector } from '../context/breadcrumbs'
@@ -192,6 +192,7 @@ export class SubmissionLifecycle {
       recording,
       anonId: getAnonId(),
       anonEmail: getStoredReporterEmail(),
+      anonName: getStoredReporterName(),
       breadcrumbs: this.deps.breadcrumbCollector.getBreadcrumbs(),
       sessionRecordings: Object.keys(sessionRecordings).length > 0 ? sessionRecordings : undefined,
     })

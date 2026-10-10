@@ -4,6 +4,7 @@ import type {
   SubmissionSessionResponse,
   ClarifyResponse,
   ClarifyMessage,
+  ReporterDetails,
 } from '../types'
 import { filterSensitiveText } from '../privacy/sanitize'
 
@@ -131,6 +132,7 @@ export class ApiClient {
     if (payload.user_id) form.append('feedback[user_id]', payload.user_id)
     if (payload.reporter_external_id) form.append('feedback[reporter_external_id]', payload.reporter_external_id)
     if (payload.reporter_email) form.append('feedback[reporter_email]', payload.reporter_email)
+    if (payload.reporter_name) form.append('feedback[reporter_name]', payload.reporter_name)
     if (payload.user_email) form.append('feedback[user_email]', payload.user_email)
     if (payload.user_name) form.append('feedback[user_name]', payload.user_name)
 
@@ -186,14 +188,22 @@ export class ApiClient {
     }
   }
 
-  async updateReporter(feedbackId: string, email: string, identityToken: string): Promise<boolean> {
+  // Sends only the fields the reporter filled in: the server keeps anything
+  // already set, so an omitted field is "no change", never "clear it".
+  async updateReporter(feedbackId: string, details: ReporterDetails, identityToken: string): Promise<boolean> {
+    const reporter: ReporterDetails = {}
+    const email = details.email?.trim()
+    const name = details.name?.trim()
+    if (email) reporter.email = email
+    if (name) reporter.name = name
+    if (!reporter.email && !reporter.name) return false
     const headers = await this.authHeaders('application/json')
     headers['X-Identity-Token'] = identityToken
     try {
       await this.fetchWithRetry(`${this.apiUrl}/widget/feedbacks/${feedbackId}/reporter`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ reporter: { email } }),
+        body: JSON.stringify({ reporter }),
       })
       return true
     } catch {

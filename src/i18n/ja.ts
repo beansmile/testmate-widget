@@ -37,6 +37,10 @@ export default {
     track_feedback: '対応状況を確認',
     email_cta: '解決したらメールで知らせる',
     notify: '通知',
+    name_label: 'お名前（任意）',
+    name_placeholder: 'お名前',
+    name_saved: 'お名前を保存しました。',
+    name_error: 'お名前を保存できませんでした。もう一度お試しください。',
   },
   error: {
     submit: '送信に失敗しました。もう一度お試しください。',

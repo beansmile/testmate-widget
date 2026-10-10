@@ -37,6 +37,10 @@ export default {
     track_feedback: 'Seguir mi comentario',
     email_cta: 'Avísame por correo cuando se arregle',
     notify: 'Avisarme',
+    name_label: 'Nombre (opcional)',
+    name_placeholder: 'Tu nombre',
+    name_saved: 'Gracias, hemos guardado tu nombre.',
+    name_error: 'No se pudo guardar tu nombre. Inténtalo de nuevo.',
   },
   error: {
     submit: 'Error al enviar. Por favor, inténtalo de nuevo.',

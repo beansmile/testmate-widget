@@ -1,13 +1,23 @@
 import type { ShadowContainer } from '../widget/shadow'
 import type { I18nMessages } from '../i18n'
 import type { ClarifyStreamResult } from '../api/client'
-import type { SubmissionSessionResponse, TargetRect } from '../types'
+import type { ReporterDetails, SubmissionSessionResponse, TargetRect } from '../types'
 import { escapeHtml, isImeConfirmKeydown } from '../context/dom-utils'
 import { SheetLayout } from './sheet'
 import { measureViewportFrame, panelWidth, VIEWPORT_MARGIN } from './position'
 import { trapFocus, type FocusTrap } from './focus-trap'
 
 type ChatState = 'idle' | 'sending' | 'clarifying' | 'answering' | 'done'
+
+/**
+ * Post-submit contact card for anonymous reporters. Both fields are optional;
+ * `onSubmit` receives only what was filled in (trimmed, non-empty) and resolves
+ * to whether the server saved it. `initial` prefills remembered values.
+ */
+export interface EmailCapture {
+  initial?: ReporterDetails
+  onSubmit: (details: ReporterDetails) => Promise<boolean>
+}
 
 interface ChatPopupOptions {
   targetName: string
@@ -31,7 +41,7 @@ interface ChatPopupOptions {
   // handoff the finalize returns, which does not exist while the reporter is
   // still typing.
   resolveBoardLink?: () => (() => void) | undefined
-  resolveEmailCapture?: () => { onSubmit: (email: string) => Promise<boolean> } | undefined
+  resolveEmailCapture?: () => EmailCapture | undefined
 }
 
 const CARD_WIDTH = 320
@@ -428,10 +438,30 @@ export class ChatPopup {
       .catch(() => {})
   }
 
-  private buildEmailCard(capture: { onSubmit: (email: string) => Promise<boolean> }): HTMLDivElement {
+  private buildEmailCard(capture: EmailCapture): HTMLDivElement {
     const m = this.i18n.success
     const card = document.createElement('div')
     card.className = 'mtb-chat-email-card'
+
+    // Name sits above the email row: it is optional and has no button of its
+    // own, so the single Notify button saves whichever of the two was filled.
+    const nameLabel = document.createElement('label')
+    nameLabel.className = 'mtb-chat-name-label'
+    const nameLabelText = document.createElement('span')
+    nameLabelText.className = 'mtb-chat-name-label-text'
+    nameLabelText.textContent = m.name_label
+    const nameField = document.createElement('div')
+    nameField.className = 'mtb-chat-email-field mtb-chat-name-field'
+    const nameInput = document.createElement('input')
+    nameInput.className = 'mtb-chat-name-input'
+    nameInput.type = 'text'
+    nameInput.autocomplete = 'name'
+    nameInput.maxLength = 255
+    nameInput.placeholder = m.name_placeholder
+    nameInput.value = capture.initial?.name ?? ''
+    nameField.appendChild(nameInput)
+    nameLabel.appendChild(nameLabelText)
+    nameLabel.appendChild(nameField)
 
     const row = document.createElement('div')
     row.className = 'mtb-chat-email-row'
@@ -441,51 +471,69 @@ export class ChatPopup {
     const input = document.createElement('input')
     input.className = 'mtb-chat-email-input'
     input.type = 'email'
+    input.autocomplete = 'email'
+    input.maxLength = 255
     input.placeholder = m.email_cta
+    input.value = capture.initial?.email ?? ''
     field.appendChild(input)
 
     const btn = document.createElement('button')
     btn.className = 'mtb-chat-email-submit'
     btn.type = 'button'
     btn.textContent = m.notify
-    btn.disabled = true
 
-    const submitEmail = async () => {
+    const filled = (): ReporterDetails => {
+      const details: ReporterDetails = {}
       const email = input.value.trim()
-      if (!email) return
+      const name = nameInput.value.trim()
+      if (email) details.email = email
+      if (name) details.name = name
+      return details
+    }
+    const hasAny = () => Boolean(input.value.trim() || nameInput.value.trim())
+    btn.disabled = !hasAny()
+
+    const submitDetails = async () => {
+      const details = filled()
+      if (!details.email && !details.name) return
       this.clearAutoCloseTimer()
       btn.disabled = true
       input.disabled = true
-      const saved = await capture.onSubmit(email)
+      nameInput.disabled = true
+      const saved = await capture.onSubmit(details)
       if (this.destroyed) return
       if (saved) {
         const note = document.createElement('div')
         note.className = 'mtb-chat-email-note'
-        note.textContent = m.email_saved
+        note.textContent = details.email ? m.email_saved : m.name_saved
         card.replaceChildren(note)
         this.armAutoCloseTimer()
         return
       }
       input.disabled = false
+      nameInput.disabled = false
       btn.disabled = false
       const error = card.querySelector('.mtb-chat-email-error') ?? document.createElement('div')
       error.className = 'mtb-chat-email-error'
-      error.textContent = m.email_error
+      error.textContent = details.email ? m.email_error : m.name_error
       card.appendChild(error)
     }
 
-    input.addEventListener('focus', () => this.clearAutoCloseTimer())
-    input.addEventListener('input', () => {
-      this.clearAutoCloseTimer()
-      btn.disabled = !input.value.trim()
-    })
-    input.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && input.value.trim()) void submitEmail()
-    })
-    btn.addEventListener('click', () => void submitEmail())
+    for (const el of [nameInput, input]) {
+      el.addEventListener('focus', () => this.clearAutoCloseTimer())
+      el.addEventListener('input', () => {
+        this.clearAutoCloseTimer()
+        btn.disabled = !hasAny()
+      })
+      el.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter' && !isImeConfirmKeydown(e) && hasAny()) void submitDetails()
+      })
+    }
+    btn.addEventListener('click', () => void submitDetails())
 
     row.appendChild(field)
     row.appendChild(btn)
+    card.appendChild(nameLabel)
     card.appendChild(row)
     return card
   }

@@ -357,7 +357,8 @@ timeout unless activity actually extends the expiration timestamp.
 ## Optional Reporter Handoff
 
 These operations are not required for feedback submission. They support the
-hosted-style anonymous "My feedback" link and post-submit email capture.
+hosted-style anonymous "My feedback" link and post-submit contact capture
+(optional name and email).
 
 ### Create an identity token
 
@@ -389,13 +390,21 @@ Content-Type: application/json
 ```
 
 ```json
-{"reporter":{"email":"reporter@example.com"}}
+{"reporter":{"email":"reporter@example.com","name":"Ada Lovelace"}}
 ```
+
+Both `email` and `name` (max 255 characters) are optional, but at least one is
+present: the Widget sends only the fields the reporter filled in, trimmed and
+non-empty, so an omitted field means "no change". Keep values that are already
+set on the reporter rather than overwriting them.
 
 Return `204 No Content`. Verify that the identity token belongs to the same
 Project and reporter as the Feedback before updating anything. The Widget calls
 this only when finalization returned an `identity_token` for an anonymous
-reporter who has not already supplied an email.
+reporter who has not already supplied an email. The Widget remembers what was
+saved (`mtb_reporter_email` / `mtb_reporter_name` in localStorage), prefills a
+remembered name on the next capture card, and sends both on later anonymous
+submissions as `feedback[reporter_email]` / `feedback[reporter_name]`.
 
 ## Error Responses
 

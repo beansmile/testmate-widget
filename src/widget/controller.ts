@@ -11,6 +11,7 @@ import { AnnotationToolbar } from '../annotate/toolbar'
 import { AnnotationSession } from '../annotate/session'
 import { DrawNoteBar } from '../annotate/draw-note-bar'
 import { ChatPopup } from '../popup/chat-popup'
+import type { EmailCapture } from '../popup/chat-popup'
 import { ReceiptCard } from '../popup/receipt'
 import { warmFontEmbedCss } from '../screenshot/capture'
 import { ConsoleErrorCollector } from '../context/console'
@@ -18,13 +19,21 @@ import { BreadcrumbCollector } from '../context/breadcrumbs'
 import { FrustrationDetector } from '../context/frustration'
 import { isFrustrationDismissed, markFrustrationDismissed } from '../context/frustration-state'
 import { ApiClient } from '../api/client'
-import { cacheBoardUrl, getAnonId, getCachedBoardUrl, getStoredReporterEmail, rememberReporterEmail } from './anon-id'
+import {
+  cacheBoardUrl,
+  getAnonId,
+  getCachedBoardUrl,
+  getStoredReporterEmail,
+  getStoredReporterName,
+  rememberReporterEmail,
+  rememberReporterName,
+} from './anon-id'
 import { getMessages } from '../i18n'
 import { RecordingManager } from './recording-manager'
 import { SubmissionLifecycle } from './submission-lifecycle'
 import { AnnotatingState, ChatClarifyingState, IdleState, PopupState, SubmittingState } from './mode-states'
 import type { ModeHost, ModeState, NotePopupOptions } from './mode-states'
-import type { TestMateConfig, Annotation, SubmissionSessionResponse, FeedbackResponse } from '../types'
+import type { TestMateConfig, Annotation, SubmissionSessionResponse, FeedbackResponse, ReporterDetails } from '../types'
 import { resolveBrandColors } from './brand-colors'
 import type { WidgetBrandColors } from './brand-colors'
 
@@ -685,16 +694,26 @@ export class WidgetController implements ModeHost {
     }, { ...options, onViewFeedback: this.buildViewFeedbackHandler() })
   }
 
-  private buildEmailCapture(): { onSubmit: (email: string) => Promise<boolean> } | undefined {
+  private buildEmailCapture(): EmailCapture | undefined {
     if (this.config.user) return undefined
     const { feedbackId, identityToken } = this.lastHandoff
     if (!feedbackId || !identityToken) return undefined
+    // A reporter who already left an email has opted in; asking again on every
+    // report would nag. The name alone does not count: it carries no way to
+    // reach them, so the card still offers the email, with the name prefilled.
     if (getStoredReporterEmail()) return undefined
 
     return {
-      onSubmit: async (email: string) => {
-        const saved = await this.apiClient.updateReporter(feedbackId, email, identityToken)
-        if (saved) rememberReporterEmail(email)
+      initial: { email: getStoredReporterEmail(), name: getStoredReporterName() },
+      onSubmit: async (details: ReporterDetails) => {
+        const email = details.email?.trim()
+        const name = details.name?.trim()
+        if (!email && !name) return false
+        const saved = await this.apiClient.updateReporter(feedbackId, { email, name }, identityToken)
+        if (saved) {
+          if (email) rememberReporterEmail(email)
+          if (name) rememberReporterName(name)
+        }
         return saved
       },
     }

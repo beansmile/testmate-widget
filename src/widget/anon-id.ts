@@ -1,9 +1,11 @@
 const STORAGE_KEY = 'mtb_anon_id'
 const EMAIL_KEY = 'mtb_reporter_email'
+const NAME_KEY = 'mtb_reporter_name'
 const BOARD_URL_KEY = 'mtb_board_url'
 
 let memoryId: string | null = null
 let memoryEmail: string | null = null
+let memoryName: string | null = null
 let memoryBoardUrl: string | null = null
 
 export function getAnonId(): string {
@@ -31,6 +33,23 @@ export function rememberReporterEmail(email: string): void {
   memoryEmail = email
   try {
     window.localStorage.setItem(EMAIL_KEY, email)
+  } catch {
+    // localStorage unavailable — the in-memory copy covers this session
+  }
+}
+
+export function getStoredReporterName(): string | undefined {
+  try {
+    return window.localStorage.getItem(NAME_KEY) ?? undefined
+  } catch {
+    return memoryName ?? undefined
+  }
+}
+
+export function rememberReporterName(name: string): void {
+  memoryName = name
+  try {
+    window.localStorage.setItem(NAME_KEY, name)
   } catch {
     // localStorage unavailable — the in-memory copy covers this session
   }

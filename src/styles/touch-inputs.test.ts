@@ -28,6 +28,7 @@ describe('touch input font size', () => {
     // Built with createElement rather than a template string, so the scan in
     // the next test cannot see it — asserted by hand instead.
     expect(block).toContain('.mtb-chat-email-input')
+    expect(block).toContain('.mtb-chat-name-input')
     expect(block).toMatch(/font-size:\s*16px/)
   })
 

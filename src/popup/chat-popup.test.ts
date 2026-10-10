@@ -109,6 +109,61 @@ describe('ChatPopup streaming', () => {
     vi.useRealTimers()
   })
 
+  it('saves a name alone from the capture card', async () => {
+    const save = vi.fn().mockResolvedValue(true)
+    const onClarify = vi.fn().mockResolvedValue(makeResult({ done: true, messages: [] }))
+    const { shadow, popup } = mountPopup({
+      onClarify,
+      resolveEmailCapture: () => ({ onSubmit: save }),
+    })
+
+    popup.submit('clear feedback')
+    await vi.waitFor(() => expect(shadow.root.querySelector('.mtb-chat-success')).toBeTruthy())
+    popup.showFinalizeSuccess()
+
+    const nameInput = shadow.root.querySelector<HTMLInputElement>('.mtb-chat-name-input')!
+    const btn = shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-email-submit')!
+    expect(shadow.root.querySelector('.mtb-chat-name-label-text')!.textContent).toBe('Name (optional)')
+    expect(nameInput.placeholder).toBe('Your name')
+    expect(btn.disabled).toBe(true)
+
+    nameInput.value = '  Ada  '
+    nameInput.dispatchEvent(new Event('input'))
+    expect(btn.disabled).toBe(false)
+    btn.click()
+
+    expect(save).toHaveBeenCalledWith({ name: 'Ada' })
+    await vi.waitFor(() => {
+      expect(shadow.root.querySelector('.mtb-chat-email-note')!.textContent).toBe("Thanks, we've saved your name.")
+    })
+    shadow.destroy()
+  })
+
+  it('sends name and email together and prefills remembered values', async () => {
+    const save = vi.fn().mockResolvedValue(true)
+    const onClarify = vi.fn().mockResolvedValue(makeResult({ done: true, messages: [] }))
+    const { shadow, popup } = mountPopup({
+      onClarify,
+      resolveEmailCapture: () => ({ initial: { name: 'Ada' }, onSubmit: save }),
+    })
+
+    popup.submit('clear feedback')
+    await vi.waitFor(() => expect(shadow.root.querySelector('.mtb-chat-success')).toBeTruthy())
+    popup.showFinalizeSuccess()
+
+    const nameInput = shadow.root.querySelector<HTMLInputElement>('.mtb-chat-name-input')!
+    const emailInput = shadow.root.querySelector<HTMLInputElement>('.mtb-chat-email-input')!
+    expect(nameInput.value).toBe('Ada')
+    expect(emailInput.value).toBe('')
+
+    emailInput.value = 'ada@example.com'
+    emailInput.dispatchEvent(new Event('input'))
+    emailInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+
+    expect(save).toHaveBeenCalledWith({ name: 'Ada', email: 'ada@example.com' })
+    shadow.destroy()
+  })
+
   it('pauses auto-close while email is being filled and saved', async () => {
     vi.useFakeTimers()
     let resolveSave!: (saved: boolean) => void
@@ -134,7 +189,7 @@ describe('ChatPopup streaming', () => {
     expect(shadow.root.querySelector('.mtb-chat')).toBeTruthy()
 
     shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-email-submit')!.click()
-    expect(saveEmail).toHaveBeenCalledWith('anon@example.com')
+    expect(saveEmail).toHaveBeenCalledWith({ email: 'anon@example.com' })
     await vi.advanceTimersByTimeAsync(3_000)
     expect(shadow.root.querySelector('.mtb-chat')).toBeTruthy()
 
