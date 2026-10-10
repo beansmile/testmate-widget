@@ -83,10 +83,37 @@ describe('ChatPopup streaming', () => {
     shadow.destroy()
   })
 
-  it('auto-closes a finalized receipt after three seconds', async () => {
+  it('auto-closes a finalized receipt after three seconds when there is no capture card', async () => {
     vi.useFakeTimers()
     const onClarify = vi.fn().mockResolvedValue(makeResult({ done: true, messages: [] }))
-    const { shadow, popup } = mountPopup({
+    const { shadow, popup, opts } = mountPopup({
+      onClarify,
+      resolveEmailCapture: () => undefined,
+    })
+
+    popup.submit('clear feedback')
+    await vi.waitFor(() => expect(shadow.root.querySelector('.mtb-chat-success')).toBeTruthy())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    popup.showFinalizeSuccess()
+    expect(shadow.root.querySelector('.mtb-chat-email-card')).toBeNull()
+
+    await vi.advanceTimersByTimeAsync(2_999)
+    expect(shadow.root.querySelector('.mtb-chat')).toBeTruthy()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(shadow.root.querySelector('.mtb-chat')).toBeNull()
+    expect(opts['onCancel']).not.toHaveBeenCalled()
+
+    shadow.destroy()
+    vi.useRealTimers()
+  })
+
+  it('never auto-closes while the capture card is waiting for the reporter', async () => {
+    vi.useFakeTimers()
+    const onClarify = vi.fn().mockResolvedValue(makeResult({ done: true, messages: [] }))
+    const { shadow, popup, opts } = mountPopup({
       onClarify,
       resolveEmailCapture: () => ({ onSubmit: vi.fn().mockResolvedValue(true) }),
     })
@@ -97,12 +124,55 @@ describe('ChatPopup streaming', () => {
     await Promise.resolve()
 
     popup.showFinalizeSuccess()
-    expect(shadow.root.querySelector('.mtb-chat-email-input')).toBeTruthy()
+    expect(shadow.root.querySelector('.mtb-chat-email-card')).toBeTruthy()
 
-    await vi.advanceTimersByTimeAsync(2_999)
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(shadow.root.querySelector('.mtb-chat')).toBeTruthy()
+    expect(shadow.root.querySelector('.mtb-chat-email-input')).toBeTruthy()
+    expect(opts['onCancel']).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(1)
+    popup.destroy()
+    shadow.destroy()
+    vi.useRealTimers()
+  })
+
+  it('still closes from the × button while the capture card is showing', async () => {
+    vi.useFakeTimers()
+    const onClarify = vi.fn().mockResolvedValue(makeResult({ done: true, messages: [] }))
+    const { shadow, popup, opts } = mountPopup({
+      onClarify,
+      resolveEmailCapture: () => ({ onSubmit: vi.fn().mockResolvedValue(true) }),
+    })
+
+    popup.submit('clear feedback')
+    await vi.waitFor(() => expect(shadow.root.querySelector('.mtb-chat-success')).toBeTruthy())
+    popup.showFinalizeSuccess()
+    expect(shadow.root.querySelector('.mtb-chat-email-card')).toBeTruthy()
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-close')!.click()
+    expect(opts['onCancel']).toHaveBeenCalledTimes(1)
+
+    popup.destroy()
+    shadow.destroy()
+    vi.useRealTimers()
+  })
+
+  it('still closes from Escape while the capture card is showing', async () => {
+    vi.useFakeTimers()
+    const onClarify = vi.fn().mockResolvedValue(makeResult({ done: true, messages: [] }))
+    const { shadow, popup } = mountPopup({
+      onClarify,
+      resolveEmailCapture: () => ({ onSubmit: vi.fn().mockResolvedValue(true) }),
+    })
+
+    popup.submit('clear feedback')
+    await vi.waitFor(() => expect(shadow.root.querySelector('.mtb-chat-success')).toBeTruthy())
+    popup.showFinalizeSuccess()
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(shadow.root.querySelector('.mtb-chat')).toBeTruthy()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(shadow.root.querySelector('.mtb-chat')).toBeNull()
 
     shadow.destroy()

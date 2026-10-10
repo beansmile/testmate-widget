@@ -367,6 +367,7 @@ export class ChatPopup {
     const view = this.el.querySelector<HTMLDivElement>('.mtb-chat-success') ?? document.createElement('div')
     view.className = 'mtb-chat-success mtb-chat-success-simple'
     view.replaceChildren()
+    this.awaitingCapture = false
 
     const icon = document.createElement('div')
     icon.className = 'mtb-chat-success-icon'
@@ -454,12 +455,19 @@ export class ChatPopup {
     if (emailCapture && !view.querySelector('.mtb-chat-email-card')) {
       view.classList.remove('mtb-chat-success-simple')
       view.appendChild(this.buildEmailCard(emailCapture))
+      this.awaitingCapture = true
     }
 
-    if (this.finalized && !this.autoCloseTimer) this.armAutoCloseTimer()
+    // A receipt that is asking for a name or email stays up until the reporter
+    // deals with it — three seconds is not long enough to read the card, let
+    // alone type into it. They close it themselves (×, Escape, the launcher),
+    // or saving the card starts the usual countdown.
+    if (this.finalized && !this.awaitingCapture && !this.autoCloseTimer) this.armAutoCloseTimer()
   }
 
   private finalized = false
+  /** The capture card is on screen and has not been saved yet. */
+  private awaitingCapture = false
 
   private finalizeInBackground(): void {
     if (this.destroyed) return
@@ -539,6 +547,7 @@ export class ChatPopup {
         note.className = 'mtb-chat-email-note'
         note.textContent = details.email ? m.email_saved : m.name_saved
         card.replaceChildren(note)
+        this.awaitingCapture = false
         this.armAutoCloseTimer()
         return
       }
