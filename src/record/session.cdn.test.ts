@@ -33,10 +33,10 @@ function createMockShadow(): ShadowContainer {
 
 // session.ts caches the rrweb loader promise at module level, so each test
 // re-imports a fresh module instance.
-async function freshSession(): Promise<RecordSession> {
+async function freshSession(recorderUrl?: string): Promise<RecordSession> {
   vi.resetModules()
   const { RecordSession: Cls } = await import('./session')
-  return new Cls(createMockShadow())
+  return new Cls(createMockShadow(), undefined, recorderUrl)
 }
 
 describe('RecordSession CDN fallback', () => {
@@ -55,7 +55,7 @@ describe('RecordSession CDN fallback', () => {
     delete (globalThis as Record<string, unknown>).rrwebRecord
   })
 
-  it('loads @rrweb/record UMD build via classic script tag', async () => {
+  function captureScripts(): HTMLScriptElement[] {
     const appended: HTMLScriptElement[] = []
     vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
       const script = node as HTMLScriptElement
@@ -65,11 +65,42 @@ describe('RecordSession CDN fallback', () => {
       script.onload?.(new Event('load'))
       return node
     })
+    return appended
+  }
+
+  it('loads the recorder from the TestMate origin by default, without SRI/crossorigin', async () => {
+    const appended = captureScripts()
 
     session = await freshSession()
     await session.start()
 
     expect(appended).toHaveLength(1)
+    const script = appended[0]
+    expect(script.src).toBe('https://testmate.beansmile.ai/widget/rrweb-record.js')
+    // A crossorigin script needs CORS headers on the static file; the copy is
+    // same-origin with the widget bundle, so no SRI is attached to it.
+    expect(script.integrity || null).toBeNull()
+    expect(script.getAttribute('crossorigin')).toBeNull()
+    expect(mockRecord).toHaveBeenCalledOnce()
+  })
+
+  it('honours a custom recorderUrl', async () => {
+    const appended = captureScripts()
+
+    session = await freshSession('https://cdn.example.com/rrweb-record.js')
+    await session.start()
+
+    expect(appended[0].src).toBe('https://cdn.example.com/rrweb-record.js')
+    expect(mockRecord).toHaveBeenCalledOnce()
+  })
+
+  it('keeps SRI on the pinned jsDelivr @rrweb/record UMD build', async () => {
+    const appended = captureScripts()
+    const { RRWEB_CDN } = await import('./session')
+
+    session = await freshSession(RRWEB_CDN)
+    await session.start()
+
     const script = appended[0]
     // rrweb 2.x publishes no UMD build in the `rrweb` package — its dist files
     // are ESM and throw "Unexpected token 'export'" in a classic script tag.

@@ -72,7 +72,7 @@ export default {
     preview_unavailable: '暂无法预览',
   },
   clarify: {
-    title: 'Make This Better AI',
+    title: 'TestMate AI',
     subtitle: '正在完善你的反馈',
     thinking: '思考中...',
     placeholder: '补充说明后提交',

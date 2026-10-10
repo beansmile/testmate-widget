@@ -1,11 +1,11 @@
-import type { MakeThisBetterConfig, WidgetBrandColors } from '../types'
+import type { TestMateConfig, WidgetBrandColors } from '../types'
 
 export type { WidgetBrandColors } from '../types'
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i
 
 export function resolveBrandColors(
-  colors: MakeThisBetterConfig['brandColors'],
+  colors: TestMateConfig['brandColors'],
 ): WidgetBrandColors | undefined {
   if (colors === undefined) return undefined
 
@@ -26,7 +26,7 @@ export function resolveBrandColors(
 
 function rejectBrandColors(): undefined {
   console.warn(
-    '[MakeThisBetter] brandColors requires primary, hover, active, and onPrimary as six-digit hex colors.',
+    '[TestMate] brandColors requires primary, hover, active, and onPrimary as six-digit hex colors.',
   )
   return undefined
 }

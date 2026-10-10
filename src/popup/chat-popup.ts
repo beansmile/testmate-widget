@@ -37,8 +37,6 @@ interface ChatPopupOptions {
 const CARD_WIDTH = 320
 const AUTO_CLOSE_MS = 3000
 
-const BRAND_URL = 'https://makethisbetter.dev'
-
 const BRAND_ICON = '<svg viewBox="0 0 512 512" fill="none"><defs><linearGradient id="mtb-bg" x1=".3" y1="0" x2=".7" y2="1"><stop offset="0%" stop-color="var(--mtb-chat-logo-start, #10b981)"/><stop offset="100%" stop-color="var(--mtb-chat-logo-end, #059669)"/></linearGradient></defs><rect width="512" height="512" rx="96" fill="url(#mtb-bg)"/><g transform="translate(89,89) scale(13.9)" stroke="var(--mtb-chat-logo-fg, #fff)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/><circle cx="12" cy="12" r="2.2" fill="var(--mtb-chat-logo-fg, #fff)" stroke="none"/></g></svg>'
 const CLOSE_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8.9 8l3.3-3.3-.9-.9L8 7.1 4.7 3.8l-.9.9L7.1 8l-3.3 3.3.9.9L8 8.9l3.3 3.3.9-.9z"/></svg>'
 const CAMERA_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.2 2.6h3.6l.9 1.4H14a1 1 0 011 1v7.4a1 1 0 01-1 1H2a1 1 0 01-1-1V5a1 1 0 011-1h3.3l.9-1.4z"/><circle cx="8" cy="9" r="2.5" class="mtb-chat-icon-lens"/></svg>'
@@ -121,10 +119,10 @@ export class ChatPopup {
       <div class="mtb-chat-header">
         <div class="mtb-chat-handle"></div>
         <div class="mtb-chat-header-row">
-          <a class="mtb-chat-brand" href="${BRAND_URL}" target="_blank" rel="noopener">
+          <span class="mtb-chat-brand">
             <span class="mtb-chat-logo">${BRAND_ICON}</span>
-            <span class="mtb-chat-brand-name">Make This Better</span>
-          </a>
+            <span class="mtb-chat-brand-name">TestMate</span>
+          </span>
           <span class="mtb-chat-header-gap"></span>
           <button class="mtb-chat-close" type="button" aria-label="${escapeHtml(m.popup.close)}">${CLOSE_ICON}</button>
         </div>

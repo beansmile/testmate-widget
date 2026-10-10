@@ -1,3 +1,3 @@
-import { MakeThisBetter } from './index'
+import { TestMate } from './index'
 
-export default MakeThisBetter
+export default TestMate

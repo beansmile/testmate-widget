@@ -72,8 +72,14 @@ export { BLOCK_CLASS, MASK_TEXT_CLASS }
 // no UMD in 2.x (its dist files are ESM and throw "Unexpected token 'export'"
 // in a classic script tag), and jsDelivr's auto-minified files are unsafe for
 // SRI because their hash changes when jsDelivr upgrades its minifier.
-const RRWEB_CDN = 'https://cdn.jsdelivr.net/npm/@rrweb/record@2.1.0/umd/record.min.js'
+export const RRWEB_CDN = 'https://cdn.jsdelivr.net/npm/@rrweb/record@2.1.0/umd/record.min.js'
 const RRWEB_SRI = 'sha384-MrD66HBNSykaP2N95+6hQCFlF5oH2tvL3TD/zyvHNkP/sAFWZx98DX9MEDy8MdVT'
+// TestMate serves a byte-identical copy of RRWEB_CDN from its own origin so
+// customer pages need no third-party CDN in their CSP. It is loaded without
+// SRI/crossorigin: a crossorigin script needs CORS headers on the static
+// file, and the copy shares a trust root with the widget bundle itself (same
+// origin), so the hash would add nothing. SRI stays on for the jsDelivr URL.
+export const DEFAULT_RECORDER_URL = 'https://testmate.beansmile.ai/widget/rrweb-record.js'
 
 let rrwebLoaded: Promise<RRWebRecordFn> | null = null
 
@@ -86,9 +92,11 @@ function isIifeBuild(): boolean {
   return typeof __MTB_IIFE__ !== 'undefined' && __MTB_IIFE__
 }
 
-function loadRrweb(): Promise<RRWebRecordFn> {
+function loadRrweb(recorderUrl: string): Promise<RRWebRecordFn> {
   if (rrwebLoaded) return rrwebLoaded
-  const load = isIifeBuild() ? loadViaCdn() : loadViaImport().catch(() => loadViaCdn())
+  const load = isIifeBuild()
+    ? loadViaCdn(recorderUrl)
+    : loadViaImport().catch(() => loadViaCdn(recorderUrl))
   // A rejection must not stay cached: one flaky-network failure would otherwise
   // make every later Record tap fail instantly until the page reloads. Same
   // reset-on-failure as record/replay.ts.
@@ -158,14 +166,16 @@ function findGlobalRecord(): RRWebRecordFn | undefined {
   return win.rrwebRecord?.record ?? win.rrweb?.record
 }
 
-function loadViaCdn(): Promise<RRWebRecordFn> {
+function loadViaCdn(recorderUrl: string): Promise<RRWebRecordFn> {
   return new Promise((resolve, reject) => {
     const existing = findGlobalRecord()
     if (existing) { resolve(existing); return }
     const script = document.createElement('script')
-    script.src = RRWEB_CDN
-    script.integrity = RRWEB_SRI
-    script.crossOrigin = 'anonymous'
+    script.src = recorderUrl
+    if (recorderUrl === RRWEB_CDN) {
+      script.integrity = RRWEB_SRI
+      script.crossOrigin = 'anonymous'
+    }
     script.onload = () => {
       const record = findGlobalRecord()
       if (record) resolve(record)
@@ -186,14 +196,16 @@ export class RecordSession {
   private onMaxReached?: () => void
   private stopped = false
   private destroyed = false
+  private recorderUrl: string
 
-  constructor(shadow: ShadowContainer, onMaxReached?: () => void) {
+  constructor(shadow: ShadowContainer, onMaxReached?: () => void, recorderUrl?: string) {
     this.shadow = shadow
     this.onMaxReached = onMaxReached
+    this.recorderUrl = recorderUrl || DEFAULT_RECORDER_URL
   }
 
   async start(): Promise<void> {
-    const record = await loadRrweb()
+    const record = await loadRrweb(this.recorderUrl)
 
     // A cold dynamic import takes hundreds of milliseconds, and the reporter can
     // cancel the replay inside that window. Without this guard the resumed start()

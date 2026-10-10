@@ -72,7 +72,7 @@ export default {
     preview_unavailable: 'プレビューは利用できません',
   },
   clarify: {
-    title: 'Make This Better AI',
+    title: 'TestMate AI',
     subtitle: 'フィードバックを整えています',
     thinking: '考え中...',
     placeholder: '詳細を追加して送信',

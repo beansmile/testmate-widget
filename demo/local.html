@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TestMate — local server demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #18181b; background: #fff; }
+    code { background: #f4f4f5; padding: 2px 4px; border-radius: 4px; }
+    .card { border: 1px solid #e4e4e7; border-radius: 8px; padding: 16px; margin: 16px 0; }
+    button { padding: 8px 14px; border-radius: 6px; border: 1px solid #d4d4d8; background: #fafafa; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <!--
+    Runs the widget source (via `npm run dev`) against a real TestMate server.
+      npm run dev
+      open http://localhost:5173/local.html?key=mtb_proj_xxx
+    Query params:
+      key    project key (required) — Project settings → Widget, or the seed output
+      api    API base, default http://localhost:3000/api/v1
+      locale widget locale, default zh-CN
+      user   optional reporter id
+      jwt    optional identity token (X-User-Token)
+  -->
+  <h1>TestMate 本地联调</h1>
+  <p>API: <code id="api"></code> · Key: <code id="key"></code></p>
+
+  <div class="card">
+    <h2>Analytics export</h2>
+    <p>Pick a range and export. (This button logs a console error on purpose.)</p>
+    <label>Range <input id="range" value="Mar 1 - Mar 31"></label>
+    <button id="export" type="button">Export</button>
+  </div>
+
+  <div class="card">
+    <h2>Secrets that must be filtered</h2>
+    <p>Deploy key: <span id="secret">ghp_abcdefghijklmnopqrstuvwxyz0123456789</span></p>
+  </div>
+
+  <script type="module">
+    import { TestMate } from '../src/index.ts'
+
+    const params = new URLSearchParams(location.search)
+    const projectKey = params.get('key')
+    const apiUrl = params.get('api') || 'http://localhost:3000/api/v1'
+    document.getElementById('api').textContent = apiUrl
+    document.getElementById('key').textContent = projectKey || '(add ?key=mtb_proj_… to the URL)'
+    document.getElementById('export').addEventListener('click', () => {
+      console.error('Export failed: invalid date range (token=abc123secret)')
+    })
+
+    if (projectKey) {
+      const config = { projectKey, apiUrl, locale: params.get('locale') || 'zh-CN' }
+      if (params.get('user')) config.user = { id: params.get('user') }
+      if (params.get('jwt')) config.userToken = params.get('jwt')
+      TestMate.init(config)
+    }
+  </script>
+</body>
+</html>

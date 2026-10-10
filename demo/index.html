@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Make This Better — Widget Demo</title>
+  <title>TestMate — Widget Demo</title>
   <link rel="icon" href="data:," />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -339,7 +339,7 @@
   <div class="app-container">
     <!-- Demo intro -->
     <div class="demo-note" style="margin-bottom: 16px;">
-      <strong>Make This Better Widget Demo</strong> — <span id="entry-instruction">Click the green <strong>Feedback</strong> tab on the right to try it</span>
+      <strong>TestMate Widget Demo</strong> (mock API — see <a href="./local.html">local.html</a> for a real local server) — <span id="entry-instruction">Click the green <strong>Feedback</strong> tab on the right to try it</span>
     </div>
 
     <!-- Simulated browser -->
@@ -465,7 +465,7 @@
 
   <!-- Config panel for demo customization -->
   <div class="config-panel">
-    <div class="config-title">MakeThisBetter.init() Config</div>
+    <div class="config-title">TestMate.init() Config</div>
     <div class="config-field">
       <label class="config-label">projectKey</label>
       <input class="config-input" id="cfg-key" value="demo_proj_123" />
@@ -503,7 +503,7 @@
     </div>
     <div class="config-field">
       <label class="config-label">apiUrl (mock by default)</label>
-      <input class="config-input" id="cfg-api" value="/__mtb_mock/api/v1" placeholder="https://makethisbetter.dev/api/v1" />
+      <input class="config-input" id="cfg-api" value="/__mtb_mock/api/v1" placeholder="https://testmate.beansmile.ai/api/v1" />
     </div>
     <div class="config-field">
       <label class="config-label" for="cfg-finalize-response">finalize response</label>
@@ -520,14 +520,14 @@
   <script type="module">
     import { isDemoApiRequest, requestUrl } from './mock-api.ts'
 
-    window.__MTB = MakeThisBetter
+    window.__MTB = TestMate
     const originalFetch = window.fetch.bind(window)
     const customFeedbackButton = document.getElementById('custom-feedback-button')
     const entryInstruction = document.getElementById('entry-instruction')
     let finalizeResponse = 'success'
     let finalizeFailureConsumed = false
 
-    customFeedbackButton.addEventListener('click', () => MakeThisBetter.open())
+    customFeedbackButton.addEventListener('click', () => TestMate.open())
 
     window.fetch = async (input, init) => {
       const url = requestUrl(input)
@@ -630,7 +630,7 @@
         ? 'Click <strong>Send feedback</strong> in the app header to try it'
         : 'Click the green <strong>Feedback</strong> tab on the right to try it'
 
-      MakeThisBetter.init({
+      TestMate.init({
         projectKey: key,
         locale,
         position,

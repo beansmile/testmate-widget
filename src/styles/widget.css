@@ -696,15 +696,6 @@
   transition: opacity 0.16s;
 }
 
-.mtb-chat-brand:hover {
-  opacity: 1;
-}
-
-.mtb-chat-brand:hover .mtb-chat-brand-name {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
 .mtb-chat-logo {
   width: 20px;
   height: 20px;

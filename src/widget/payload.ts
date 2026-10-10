@@ -1,7 +1,7 @@
 import type { SessionRecordingData } from '../context/session-recordings'
 import type { PageContext } from '../context/collector'
 import { filterSensitiveValue, sanitizeUrl } from '../privacy/sanitize'
-import type { Annotation, Breadcrumb, FeedbackPayload, MakeThisBetterConfig } from '../types'
+import type { Annotation, Breadcrumb, FeedbackPayload, TestMateConfig } from '../types'
 import type { RecordingResult } from '../record/session'
 
 export interface BuildPayloadOptions {
@@ -9,7 +9,7 @@ export interface BuildPayloadOptions {
   pageContext: PageContext
   consoleErrors: string[]
   annotation: Annotation | null
-  user: MakeThisBetterConfig['user']
+  user: TestMateConfig['user']
   recording?: RecordingResult
   anonId?: string
   anonEmail?: string

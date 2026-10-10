@@ -88,9 +88,9 @@ for (const entry of entryPoints) {
 }
 
 // The entry point has top-level side effects — it registers
-// window.MakeThisBetter and the turbo:load listener — so a blanket
+// window.TestMate / window.MakeThisBetter and the turbo:load listener — so a blanket
 // "sideEffects": false lets bundlers tree-shake a side-effect-only
-// `import 'makethisbetter'` down to nothing. The bundles must stay declared.
+// `import '@beansmile/testmate-widget'` down to nothing. The bundles must stay declared.
 const sideEffects = Array.isArray(pkg.sideEffects) ? pkg.sideEffects : []
 for (const required of ['./dist/*.js', './dist/*.cjs']) {
   if (!sideEffects.includes(required)) {

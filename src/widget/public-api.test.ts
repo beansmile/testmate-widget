@@ -310,3 +310,18 @@ describe('public API', () => {
     })
   })
 })
+
+describe('TestMate branding', () => {
+  it('exposes window.TestMate and keeps window.MakeThisBetter as an alias', async () => {
+    const mod = await import('../index')
+    const win = window as unknown as Record<string, unknown>
+    expect(mod.TestMate).toBe(mod.MakeThisBetter)
+    expect(win.TestMate).toBe(mod.TestMate)
+    expect(win.MakeThisBetter).toBe(mod.TestMate)
+  })
+
+  it('defaults the API to the TestMate server', async () => {
+    const { DEFAULT_API_URL } = await import('../api/client')
+    expect(DEFAULT_API_URL).toBe('https://testmate.beansmile.ai/api/v1')
+  })
+})

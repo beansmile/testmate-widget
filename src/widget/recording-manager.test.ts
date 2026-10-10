@@ -52,7 +52,7 @@ describe('RecordingManager', () => {
 
     const { RecordSession } = await import('../record/session')
     const { RecordControlBar } = await import('../record/control-bar')
-    expect(RecordSession).toHaveBeenCalledWith(shadow, onStop)
+    expect(RecordSession).toHaveBeenCalledWith(shadow, onStop, undefined)
     expect(RecordControlBar).toHaveBeenCalledWith(
       shadow,
       messages,

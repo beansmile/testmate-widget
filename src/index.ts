@@ -1,9 +1,9 @@
 import { WidgetController } from './widget/controller'
 import { WIDGET_HOST_ID } from './context/dom-utils'
-import type { MakeThisBetterConfig } from './types'
+import type { TestMateConfig, MakeThisBetterConfig } from './types'
 
 let instance: WidgetController | null = null
-let lastConfig: MakeThisBetterConfig | null = null
+let lastConfig: TestMateConfig | null = null
 // A mount deferred until DOMContentLoaded. Held so a second init() — or a
 // destroy() — can call it off: otherwise each init before the document is ready
 // queues its own listener, and every controller but the last mounts with no
@@ -16,14 +16,14 @@ function cancelPendingMount(): void {
   pendingMount = null
 }
 
-function replaceInstance(config?: MakeThisBetterConfig): void {
+function replaceInstance(config?: TestMateConfig): void {
   cancelPendingMount()
   instance?.destroy()
   instance = config ? new WidgetController(config) : null
 }
 
-const MakeThisBetter = {
-  init(config: MakeThisBetterConfig): void {
+const TestMate = {
+  init(config: TestMateConfig): void {
     // SSR frameworks run the same component code on the server, where there is
     // no document at all — a widget cannot exist there, and throwing a
     // ReferenceError into the host's render pass is the one thing a
@@ -75,11 +75,19 @@ const MakeThisBetter = {
   },
 }
 
-export { MakeThisBetter }
-export type { MakeThisBetterConfig }
+// Upstream name, kept so pages and code written against makethisbetter-js keep
+// working against the TestMate build unchanged.
+const MakeThisBetter = TestMate
+
+export { TestMate, MakeThisBetter }
+export type { TestMateConfig, MakeThisBetterConfig }
+
+type TestMateGlobals = { TestMate?: typeof TestMate; MakeThisBetter?: typeof TestMate }
 
 if (typeof window !== 'undefined') {
-  (window as Window & { MakeThisBetter?: typeof MakeThisBetter }).MakeThisBetter = MakeThisBetter
+  const win = window as Window & TestMateGlobals
+  win.TestMate = TestMate
+  win.MakeThisBetter = TestMate
 
   document.addEventListener('turbo:load', () => {
     const host = document.getElementById(WIDGET_HOST_ID)

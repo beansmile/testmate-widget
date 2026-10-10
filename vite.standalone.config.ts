@@ -18,7 +18,7 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, 'src/index.ts'),
       formats: ['es'],
-      fileName: () => 'makethisbetter.standalone.js',
+      fileName: () => 'testmate.standalone.js',
     },
     rollupOptions: {
       external: ['@rrweb/record'],

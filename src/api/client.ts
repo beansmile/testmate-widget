@@ -36,7 +36,7 @@ export function isTerminalConflict(error: unknown): boolean {
 // the launcher inert and nothing on screen to explain why.
 export const FINALIZE_TIMEOUT_MS = 25_000
 
-const DEFAULT_API_URL = 'https://makethisbetter.dev/api/v1'
+export const DEFAULT_API_URL = 'https://testmate.beansmile.ai/api/v1'
 const CAPTURE_POLICY = 'sensitive-data-v1'
 
 export interface ApiClientOptions {

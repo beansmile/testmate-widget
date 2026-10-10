@@ -72,7 +72,7 @@ export default {
     preview_unavailable: '미리보기를 사용할 수 없습니다',
   },
   clarify: {
-    title: 'Make This Better AI',
+    title: 'TestMate AI',
     subtitle: '피드백을 다듬는 중',
     thinking: '생각 중...',
     placeholder: '자세히 적은 뒤 제출',

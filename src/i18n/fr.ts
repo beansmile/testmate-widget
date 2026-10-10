@@ -72,7 +72,7 @@ export default {
     preview_unavailable: 'Aperçu indisponible',
   },
   clarify: {
-    title: 'Make This Better AI',
+    title: 'TestMate AI',
     subtitle: 'Affinement de votre retour',
     thinking: 'Réflexion...',
     placeholder: 'Ajoutez des détails, puis envoyez',

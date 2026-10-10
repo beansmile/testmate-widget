@@ -24,7 +24,7 @@ import { RecordingManager } from './recording-manager'
 import { SubmissionLifecycle } from './submission-lifecycle'
 import { AnnotatingState, ChatClarifyingState, IdleState, PopupState, SubmittingState } from './mode-states'
 import type { ModeHost, ModeState, NotePopupOptions } from './mode-states'
-import type { MakeThisBetterConfig, Annotation, SubmissionSessionResponse, FeedbackResponse } from '../types'
+import type { TestMateConfig, Annotation, SubmissionSessionResponse, FeedbackResponse } from '../types'
 import { resolveBrandColors } from './brand-colors'
 import type { WidgetBrandColors } from './brand-colors'
 
@@ -46,7 +46,7 @@ function isLocalHost(): boolean {
 }
 
 export class WidgetController implements ModeHost {
-  private config: MakeThisBetterConfig
+  private config: TestMateConfig
   private brandColors: WidgetBrandColors | undefined
   private shadow!: ShadowContainer
   private tab: FeedbackTab | null = null
@@ -76,13 +76,13 @@ export class WidgetController implements ModeHost {
   private touchHintShown = false
   private lastHandoff: { feedbackId?: string; boardUrl?: string; identityToken?: string } = {}
 
-  constructor(config: MakeThisBetterConfig) {
+  constructor(config: TestMateConfig) {
     this.config = config
     // A missing key still renders a fully working widget whose every submit
     // 401s — the reporter sees a generic failure and the integrator sees
     // nothing at all. Say it at init, where the integrator is looking.
     if (!config.projectKey) {
-      console.warn('[MakeThisBetter] projectKey is missing. Feedback submission will be rejected.')
+      console.warn('[TestMate] projectKey is missing. Feedback submission will be rejected.')
     }
     this.brandColors = resolveBrandColors(config.brandColors)
     this.messages = getMessages(config.locale ?? document.documentElement.lang ?? 'en')
@@ -123,7 +123,7 @@ export class WidgetController implements ModeHost {
       // instead of crashing code that is not ours.
       this.consoleCollector.stop()
       this.breadcrumbCollector.stop()
-      console.warn('[MakeThisBetter] Widget failed to start:', error)
+      console.warn('[TestMate] Widget failed to start:', error)
       return
     }
 
@@ -168,8 +168,8 @@ export class WidgetController implements ModeHost {
       // integrator is watching.
       if (isLocalHost()) {
         console.warn(
-          '[MakeThisBetter] entryMode: "api" renders no launcher. ' +
-          'Call MakeThisBetter.open() from your own UI.',
+          '[TestMate] entryMode: "api" renders no launcher. ' +
+          'Call TestMate.open() from your own UI.',
         )
       }
       return
@@ -184,8 +184,8 @@ export class WidgetController implements ModeHost {
     if (isTouchPointer()) {
       if (isLocalHost()) {
         console.warn(
-          '[MakeThisBetter] No launcher is rendered on touch devices. ' +
-          'Call MakeThisBetter.open() from your own mobile UI.',
+          '[TestMate] No launcher is rendered on touch devices. ' +
+          'Call TestMate.open() from your own mobile UI.',
         )
       }
       return
@@ -328,14 +328,14 @@ export class WidgetController implements ModeHost {
   }
 
   startRecorder(): void {
-    this.recordingManager = new RecordingManager()
+    this.recordingManager = new RecordingManager(this.config.recorderUrl)
     this.recordingManager.start(
       this.shadow,
       this.messages,
       this.stopRecordingIntoNote,
     ).catch((error) => {
       // rrweb failed to load (network / SRI mismatch) — fall back to markup
-      console.warn('[MakeThisBetter] Interaction replay unavailable, falling back to markup:', error)
+      console.warn('[TestMate] Interaction replay unavailable, falling back to markup:', error)
       // Staleness guard: the reporter may have left recording while the load
       // was still failing, and a stale fallback must not disturb wherever
       // they are now.

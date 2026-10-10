@@ -1,3 +1,6 @@
+/** @deprecated Upstream name, kept for compatibility. Use TestMateConfig. */
+export type MakeThisBetterConfig = TestMateConfig
+
 export interface WidgetBrandColors {
   primary: string
   hover: string
@@ -5,11 +8,11 @@ export interface WidgetBrandColors {
   onPrimary: string
 }
 
-export interface MakeThisBetterConfig {
+export interface TestMateConfig {
   projectKey: string
   /**
    * 'button' (default) docks the feedback tab to the edge of the viewport.
-   * 'api' renders no tab at all and waits for MakeThisBetter.open(), so the
+   * 'api' renders no tab at all and waits for TestMate.open(), so the
    * host can put the entry point wherever it belongs in its own UI — a
    * settings menu, an overflow item, a support screen.
    */
@@ -17,7 +20,15 @@ export interface MakeThisBetterConfig {
   locale?: string
   position?: 'left' | 'right'
   theme?: 'light' | 'dark' | 'auto'
+  /** Defaults to https://testmate.beansmile.ai/api/v1. */
   apiUrl?: string
+  /**
+   * Where the classic-script build lazy-loads the rrweb recorder (UMD build of
+   * @rrweb/record@2.1.0) the first time a reporter records their screen.
+   * Defaults to https://testmate.beansmile.ai/widget/rrweb-record.js. The ESM
+   * build tries the bundled `@rrweb/record` dependency first.
+   */
+  recorderUrl?: string
   frustrationDetection?: boolean
   tabText?: string
   brandColors?: WidgetBrandColors

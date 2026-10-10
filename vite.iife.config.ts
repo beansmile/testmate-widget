@@ -11,9 +11,9 @@ export default defineConfig({
     emptyOutDir: false,
     lib: {
       entry: resolve(__dirname, 'src/global.ts'),
-      name: 'MakeThisBetter',
+      name: 'TestMate',
       formats: ['iife'],
-      fileName: () => 'makethisbetter.js',
+      fileName: () => 'testmate.iife.js',
     },
     rollupOptions: {
       external: ['@rrweb/record'],

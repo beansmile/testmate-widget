@@ -13,10 +13,10 @@ export default defineConfig({
       entry: resolve(__dirname, 'src/index.ts'),
       formats: ['es', 'cjs'],
       fileName: (format) => {
-        if (format === 'es') return 'makethisbetter.esm.js'
+        if (format === 'es') return 'testmate.esm.js'
         // Real .cjs extension: "type": "module" makes Node parse .js as ESM,
         // which silently voids `exports.MakeThisBetter = ...`
-        return 'makethisbetter.cjs'
+        return 'testmate.cjs'
       },
     },
     rollupOptions: {

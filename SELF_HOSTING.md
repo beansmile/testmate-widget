@@ -1,3 +1,6 @@
+> **Note (TestMate fork):** this is the upstream API contract. The TestMate server at `https://testmate.beansmile.ai/api/v1` implements the same routes, headers and multipart fields.
+
+
 # Self-Hosting API Specification
 
 The Make This Better Widget SDK can work with any backend that implements the

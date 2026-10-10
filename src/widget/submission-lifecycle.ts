@@ -11,7 +11,7 @@ import type { ShadowContainer } from './shadow'
 import type { RecordingResult } from './recording-manager'
 import type { WidgetBrandColors } from './brand-colors'
 import type { getMessages } from '../i18n'
-import type { MakeThisBetterConfig, Annotation, SubmissionSessionResponse, FeedbackResponse } from '../types'
+import type { TestMateConfig, Annotation, SubmissionSessionResponse, FeedbackResponse } from '../types'
 
 const MIN_FINALIZE_LOADING_MS = 300
 export const IDLE_CAPTURE_MS = 900
@@ -46,7 +46,7 @@ export interface SubmissionLifecycleDeps {
   brandColors: WidgetBrandColors | undefined
   shadow: () => ShadowContainer
   messages: () => ReturnType<typeof getMessages>
-  user: () => MakeThisBetterConfig['user']
+  user: () => TestMateConfig['user']
 }
 
 /**

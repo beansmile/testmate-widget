@@ -50,14 +50,14 @@ echo ""
 
 # ---------------------------------------------------------------------------
 # Test 1: CDN script tag (IIFE)
-# The IIFE wraps as `var MakeThisBetter=function(){...}()` and also assigns
-# window.MakeThisBetter inside the bundle. Verify the IIFE evaluates and
-# exposes MakeThisBetter with an init function.
+# The IIFE wraps as `var TestMate=function(){...}()` and also assigns
+# window.TestMate / window.MakeThisBetter inside the bundle. Verify the IIFE
+# evaluates and exposes TestMate with an init function.
 # ---------------------------------------------------------------------------
 RESULT=$(node -e "
   const fs = require('fs');
-  const code = fs.readFileSync('./dist/makethisbetter.js', 'utf8');
-  const fn = new Function(code + '; return MakeThisBetter;');
+  const code = fs.readFileSync('./dist/testmate.iife.js', 'utf8');
+  const fn = new Function(code + '; return TestMate;');
   const MTB = fn();
   console.log(typeof MTB.init === 'function' ? 'PASS' : 'FAIL');
 " 2>&1 || echo "FAIL")
@@ -65,7 +65,7 @@ report "Test 1: CDN script tag (IIFE)" "$RESULT"
 
 # ---------------------------------------------------------------------------
 # Pack + install the tarball into a temp project. From here on, every test
-# resolves 'makethisbetter' the way a customer's tooling would — through the
+# resolves '@beansmile/testmate-widget' the way a customer's tooling would — through the
 # exports map of the installed package, never through ./dist paths.
 # prepack is skipped: the build already ran, and re-running it here would
 # turn this into a build test instead of an artifact test.
@@ -80,33 +80,33 @@ mkdir -p "$CONSUMER"
 ( cd "$CONSUMER" \
   && npm init -y >/dev/null 2>&1 \
   && npm install --no-audit --no-fund "$WORK/$TARBALL_RESULT" >/dev/null 2>&1 )
-if [ ! -d "$CONSUMER/node_modules/makethisbetter" ]; then
+if [ ! -d "$CONSUMER/node_modules/@beansmile/testmate-widget" ]; then
   echo "  npm install of the packed tarball failed — cannot run install tests"
   exit 1
 fi
 
 # ---------------------------------------------------------------------------
-# Test 2: npm CJS require('makethisbetter')
+# Test 2: npm CJS require('@beansmile/testmate-widget')
 # Exercises exports["."].require.default of the installed package.
 # ---------------------------------------------------------------------------
 cat > "$CONSUMER/main.cjs" <<'EOCJS'
-const m = require('makethisbetter');
-console.log(typeof m.MakeThisBetter?.init === 'function' ? 'PASS' : 'FAIL');
+const m = require('@beansmile/testmate-widget');
+console.log(typeof m.TestMate?.init === 'function' ? 'PASS' : 'FAIL');
 EOCJS
 RESULT=$(cd "$CONSUMER" && node main.cjs 2>&1 || echo "FAIL")
-report "Test 2: npm CJS require('makethisbetter')" "$RESULT"
+report "Test 2: npm CJS require('@beansmile/testmate-widget')" "$RESULT"
 
 # ---------------------------------------------------------------------------
-# Test 3: npm ESM import('makethisbetter')
+# Test 3: npm ESM import('@beansmile/testmate-widget')
 # Exercises exports["."].import.default; also covers import-map installs,
 # which resolve the same ESM entry.
 # ---------------------------------------------------------------------------
 cat > "$CONSUMER/main.mjs" <<'EOESM'
-import { MakeThisBetter } from 'makethisbetter';
-console.log(typeof MakeThisBetter.init === 'function' ? 'PASS' : 'FAIL');
+import { TestMate } from '@beansmile/testmate-widget';
+console.log(typeof TestMate.init === 'function' ? 'PASS' : 'FAIL');
 EOESM
 RESULT=$(cd "$CONSUMER" && node main.mjs 2>&1 || echo "FAIL")
-report "Test 3: npm ESM import('makethisbetter')" "$RESULT"
+report "Test 3: npm ESM import('@beansmile/testmate-widget')" "$RESULT"
 
 # ---------------------------------------------------------------------------
 # Tests 4 + 5: TypeScript types under BOTH resolution modes
@@ -139,15 +139,15 @@ run_ts_mode() {
 }
 EOJSON
   cat > "$CONSUMER/valid.ts" <<'EOTS'
-import { MakeThisBetter } from 'makethisbetter';
-import type { MakeThisBetterConfig } from 'makethisbetter';
-const config: MakeThisBetterConfig = { projectKey: 'demo' };
-MakeThisBetter.init(config);
-MakeThisBetter.destroy();
+import { TestMate } from '@beansmile/testmate-widget';
+import type { TestMateConfig } from '@beansmile/testmate-widget';
+const config: TestMateConfig = { projectKey: 'demo' };
+TestMate.init(config);
+TestMate.destroy();
 EOTS
   cat > "$CONSUMER/invalid.ts" <<'EOTS'
-import type { MakeThisBetterConfig } from 'makethisbetter';
-const config: MakeThisBetterConfig = { projectKey: 42 };
+import type { TestMateConfig } from '@beansmile/testmate-widget';
+const config: TestMateConfig = { projectKey: 42 };
 void config;
 EOTS
   local output
@@ -174,11 +174,10 @@ run_ts_mode "Test 4: TypeScript (moduleResolution bundler)" ESNext bundler
 run_ts_mode "Test 5: TypeScript (moduleResolution nodenext)" NodeNext NodeNext
 
 # ---------------------------------------------------------------------------
-# Test 6: CDN availability (unpkg + jsdelivr)
-# A real network check against the published package. Offline or blocked
-# networks skip honestly instead of fake-passing on a local file check.
+# Test 6: self-hosted bundle availability (TestMate serves the IIFE itself;
+# the package is not published to npm/unpkg/jsDelivr)
 # ---------------------------------------------------------------------------
-check_cdn() {
+check_url() {
   local url="$1"
   local status
   status=$(curl -sIL -o /dev/null -w '%{http_code}' --max-time 10 "$url" 2>/dev/null)
@@ -188,10 +187,8 @@ check_cdn() {
     *) echo "HTTP $status for $url"; echo "FAIL" ;;
   esac
 }
-RESULT=$(check_cdn "https://unpkg.com/makethisbetter@1")
-report "Test 6a: unpkg CDN availability" "$RESULT"
-RESULT=$(check_cdn "https://cdn.jsdelivr.net/npm/makethisbetter@1")
-report "Test 6b: jsdelivr CDN availability" "$RESULT"
+RESULT=$(check_url "https://testmate.beansmile.ai/widget/testmate.js")
+report "Test 6: testmate.beansmile.ai/widget/testmate.js" "$RESULT"
 
 # ---------------------------------------------------------------------------
 # Summary

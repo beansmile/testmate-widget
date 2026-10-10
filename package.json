@@ -1,13 +1,13 @@
 {
-  "name": "makethisbetter",
-  "version": "1.30.1",
-  "description": "Make This Better JS Widget SDK — embed user feedback collection in any website",
+  "name": "@beansmile/testmate-widget",
+  "version": "1.0.0",
+  "description": "TestMate feedback widget — embed user feedback collection in any website (fork of makethisbetter-js 1.30.1)",
   "type": "module",
-  "main": "./dist/makethisbetter.cjs",
-  "module": "./dist/makethisbetter.esm.js",
+  "main": "./dist/testmate.cjs",
+  "module": "./dist/testmate.esm.js",
   "types": "./dist/index.d.ts",
-  "unpkg": "./dist/makethisbetter.js",
-  "jsdelivr": "./dist/makethisbetter.js",
+  "unpkg": "./dist/testmate.iife.js",
+  "jsdelivr": "./dist/testmate.iife.js",
   "sideEffects": [
     "./dist/*.js",
     "./dist/*.cjs",
@@ -17,15 +17,16 @@
     ".": {
       "import": {
         "types": "./dist/index.d.ts",
-        "default": "./dist/makethisbetter.esm.js"
+        "default": "./dist/testmate.esm.js"
       },
       "require": {
         "types": "./dist/index.d.ts",
-        "default": "./dist/makethisbetter.cjs"
+        "default": "./dist/testmate.cjs"
       }
     },
     "./package.json": "./package.json",
-    "./standalone": "./dist/makethisbetter.standalone.js"
+    "./standalone": "./dist/testmate.standalone.js",
+    "./iife": "./dist/testmate.iife.js"
   },
   "files": [
     "dist",
@@ -33,10 +34,10 @@
     "!src/**/*.test.ts"
   ],
   "scripts": {
-    "prepare": "patch-package",
+    "prepare": "patch-package && npm run build",
     "prepack": "npm run build && node scripts/check-dist.mjs",
     "dev": "vite serve demo",
-    "build": "vite build && vite build --config vite.standalone.config.ts && vite build --config vite.iife.config.ts && tsc --emitDeclarationOnly --declaration --declarationDir dist && node scripts/fix-dts-specifiers.mjs",
+    "build": "vite build && vite build --config vite.standalone.config.ts && vite build --config vite.iife.config.ts && tsc --emitDeclarationOnly --declaration --declarationDir dist && node scripts/fix-dts-specifiers.mjs && node scripts/bundle-dts.mjs && node scripts/copy-recorder.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:install": "bash test-install-methods.sh",
@@ -57,6 +58,7 @@
     "html-to-image": "^1.11.11"
   },
   "keywords": [
+    "testmate",
     "feedback",
     "widget",
     "ai",
@@ -68,10 +70,13 @@
     "bug-reporting",
     "annotation"
   ],
-  "homepage": "https://makethisbetter.dev",
+  "homepage": "https://testmate.beansmile.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/makethisbetter/makethisbetter-js.git"
+    "url": "git+https://github.com/beansmile/testmate-widget.git"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

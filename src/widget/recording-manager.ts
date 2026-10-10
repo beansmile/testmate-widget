@@ -11,12 +11,14 @@ export class RecordingManager {
   private bar: RecordControlBar | null = null
   private result: RecordingResult | null = null
 
+  constructor(private recorderUrl?: string) {}
+
   async start(
     shadow: ShadowContainer,
     messages: I18nMessages,
     onStop: () => void,
   ): Promise<void> {
-    this.session = new RecordSession(shadow, onStop)
+    this.session = new RecordSession(shadow, onStop, this.recorderUrl)
     this.bar = new RecordControlBar(
       shadow,
       messages,

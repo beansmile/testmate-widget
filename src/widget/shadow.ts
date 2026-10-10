@@ -1,6 +1,6 @@
 import cssText from '../styles/widget.css?inline'
 import { WIDGET_HOST_ID } from '../context/dom-utils'
-import type { MakeThisBetterConfig } from '../types'
+import type { TestMateConfig } from '../types'
 import type { WidgetBrandColors } from './brand-colors'
 
 export class ShadowContainer {
@@ -37,7 +37,7 @@ export class ShadowContainer {
   private readonly originalTheme: string | null
 
   constructor(
-    theme: MakeThisBetterConfig['theme'] = 'auto',
+    theme: TestMateConfig['theme'] = 'auto',
     brandColors?: WidgetBrandColors,
   ) {
     // A page that renders its own host controls where the widget lives, and
