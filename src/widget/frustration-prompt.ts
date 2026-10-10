@@ -28,8 +28,8 @@ export class FrustrationPromptCard {
       <div class="mtb-frustration-icon">&#9888;&#65039;</div>
       <span class="mtb-frustration-text">${escapeHtml(messages.frustration.prompt)}</span>
       <div class="mtb-frustration-actions">
-        <button class="mtb-frustration-tell">${escapeHtml(messages.frustration.action)}</button>
-        <button class="mtb-frustration-dismiss">${escapeHtml(messages.frustration.dismiss)}</button>
+        <button class="mtb-frustration-tell" type="button">${escapeHtml(messages.frustration.action)}</button>
+        <button class="mtb-frustration-dismiss" type="button">${escapeHtml(messages.frustration.dismiss)}</button>
       </div>
     `
 

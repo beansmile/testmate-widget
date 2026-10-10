@@ -19,6 +19,7 @@ export class FeedbackTab {
     this.onClick = onClick
     this.customText = customText
     this.el = shadow.el<HTMLButtonElement>('button', 'mtb-tab')
+    this.el.type = 'button'
     if (position === 'left') this.el.classList.add('left')
     this.idleLabel = customText ?? messages.tab
     this.activeLabel = messages.toolbar.exit

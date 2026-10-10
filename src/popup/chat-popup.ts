@@ -68,6 +68,8 @@ export class ChatPopup {
   private opts: ChatPopupOptions
   private autoCloseTimer: ReturnType<typeof setTimeout> | null = null
   private session: SubmissionSessionResponse | null = null
+  /** The selected category chip's sentence; null when none is picked. */
+  private category: string | null = null
   private clarifyAbort: AbortController | null = null
   private destroyed = false
 
@@ -116,7 +118,7 @@ export class ChatPopup {
     const m = this.i18n
     const opts = this.opts
     const quickOpts = m.popup.quickOptions
-      .map(o => `<button class="mtb-chat-qr" type="button" data-quick="${escapeHtml(o.label)}" data-value="${escapeHtml(o.value ?? o.label)}">${escapeHtml(o.emoji)} ${escapeHtml(o.label)}</button>`)
+      .map(o => `<button class="mtb-chat-qr" type="button" aria-pressed="false" data-quick="${escapeHtml(o.label)}" data-value="${escapeHtml(o.value ?? o.label)}">${escapeHtml(o.emoji)} ${escapeHtml(o.label)}</button>`)
       .join('')
 
     const capture = opts.recordingSeconds != null
@@ -155,16 +157,21 @@ export class ChatPopup {
       this.opts.onCancel()
     })
 
-    this.quickRepliesEl.querySelectorAll('.mtb-chat-qr').forEach(btn => {
+    // The chips are a category picker, not quick-send buttons: a click only
+    // selects (or clears) the category, which is folded into the description
+    // when the reporter presses Send. They used to fire sendMessage() straight
+    // from the click, which threw away whatever had been typed and submitted
+    // the bare category sentence.
+    this.quickRepliesEl.querySelectorAll<HTMLButtonElement>('.mtb-chat-qr').forEach(btn => {
       btn.addEventListener('click', () => {
-        const value = (btn as HTMLElement).dataset['value'] ?? (btn as HTMLElement).dataset['quick'] ?? ''
-        this.inputEl.value = value
-        this.sendMessage(value)
+        const value = btn.dataset['value'] ?? btn.dataset['quick'] ?? ''
+        this.selectCategory(this.category === value ? null : value)
+        this.inputEl.focus({ preventScroll: true })
       })
     })
 
     this.inputEl.addEventListener('input', () => {
-      this.sendBtn.disabled = !this.inputEl.value.trim()
+      this.syncSendEnabled()
       this.opts.onActivity?.()
     })
 
@@ -172,7 +179,7 @@ export class ChatPopup {
       if (isImeConfirmKeydown(e)) return
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
-        const text = this.inputEl.value.trim()
+        const text = this.composeMessage()
         if (text) {
           this.sendMessage(text)
         } else if (this.state === 'clarifying') {
@@ -182,7 +189,7 @@ export class ChatPopup {
     })
 
     this.sendBtn.addEventListener('click', () => {
-      const text = this.inputEl.value.trim()
+      const text = this.composeMessage()
       if (text) this.sendMessage(text)
     })
 
@@ -197,6 +204,30 @@ export class ChatPopup {
     }
   }
 
+  private selectCategory(value: string | null): void {
+    this.category = value
+    this.quickRepliesEl.querySelectorAll<HTMLButtonElement>('.mtb-chat-qr').forEach(chip => {
+      const selected = value !== null && (chip.dataset['value'] ?? chip.dataset['quick']) === value
+      chip.setAttribute('aria-pressed', String(selected))
+    })
+    this.syncSendEnabled()
+  }
+
+  /**
+   * What Send would submit right now. Before the first send a selected
+   * category leads the description (or stands alone when nothing was typed);
+   * during clarification only the typed answer counts.
+   */
+  private composeMessage(): string {
+    const text = this.inputEl.value.trim()
+    if (this.state !== 'idle' || !this.category) return text
+    return text ? `${this.category}: ${text}` : this.category
+  }
+
+  private syncSendEnabled(): void {
+    this.sendBtn.disabled = !this.composeMessage()
+  }
+
   private async sendMessage(text: string): Promise<void> {
     if (this.state === 'sending' || this.state === 'answering') return
 
@@ -206,6 +237,7 @@ export class ChatPopup {
     }
 
     this.state = 'sending'
+    this.selectCategory(null)
     this.appendUserBubble(text)
     this.quickRepliesEl.style.display = 'none'
     this.hideCapture()

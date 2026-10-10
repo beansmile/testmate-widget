@@ -114,15 +114,15 @@ export class AnnotationToolbar {
   private buildHTML(m: I18nMessages): string {
     return `
       <div class="mtb-toolbar-modes">
-        <button class="mtb-toolbar-mode-btn mtb-toolbar-mode-markup active" aria-label="${escapeHtml(m.toolbar.markup)}" title="${escapeHtml(m.toolbar.markup)}">
+        <button class="mtb-toolbar-mode-btn mtb-toolbar-mode-markup active" type="button" aria-label="${escapeHtml(m.toolbar.markup)}" title="${escapeHtml(m.toolbar.markup)}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="3" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="3" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="21" y2="12"/></svg><span class="mtb-toolbar-label">${escapeHtml(m.toolbar.markup)}</span>
         </button>
-        <button class="mtb-toolbar-mode-btn mtb-toolbar-mode-record" aria-label="${escapeHtml(m.toolbar.record)}" title="${escapeHtml(m.toolbar.record)}">
+        <button class="mtb-toolbar-mode-btn mtb-toolbar-mode-record" type="button" aria-label="${escapeHtml(m.toolbar.record)}" title="${escapeHtml(m.toolbar.record)}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="13" height="12" rx="2.5"/><path d="M15 10.5 21.2 7.4a.6.6 0 0 1 .8.5v8.2a.6.6 0 0 1-.8.5L15 13.5z"/></svg><span class="mtb-toolbar-label">${escapeHtml(m.toolbar.record)}</span>
         </button>
       </div>
       <span class="mtb-toolbar-sep"></span>
-      <button class="mtb-exit-btn" aria-label="${escapeHtml(m.toolbar.exit)}" title="${escapeHtml(m.toolbar.exit)}">
+      <button class="mtb-exit-btn" type="button" aria-label="${escapeHtml(m.toolbar.exit)}" title="${escapeHtml(m.toolbar.exit)}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg><span class="mtb-toolbar-label">${escapeHtml(m.toolbar.exit)}</span>

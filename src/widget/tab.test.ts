@@ -170,3 +170,19 @@ describe('FeedbackTab', () => {
   })
 
 })
+
+describe('FeedbackTab button type', () => {
+  it('is a plain button that never submits an enclosing form', () => {
+    const shadow = new ShadowContainer()
+    const onClick = vi.fn()
+    const tab = new FeedbackTab(shadow, getMessages('en'), 'right', onClick)
+    const btn = shadow.root.querySelector<HTMLButtonElement>('.mtb-tab')!
+
+    expect(btn.type).toBe('button')
+    btn.click()
+    expect(onClick).toHaveBeenCalledTimes(1)
+
+    tab.destroy()
+    shadow.destroy()
+  })
+})
