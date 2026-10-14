@@ -54,8 +54,8 @@ const TestMate = {
 
   /**
    * Opens annotation mode from the host's own UI. Pair with
-   * `entryMode: 'api'` to replace the docked tab entirely, which is the only
-   * good answer on a phone where a permanent floating control is in the way.
+   * `entryMode: 'api'` to replace the built-in launcher entirely (the docked
+   * tab, or the floating button phones get) with an entry point of your own.
    */
   open(): void {
     instance?.open()
@@ -65,7 +65,10 @@ const TestMate = {
     instance?.close()
   },
 
-  /** Shows the docked tab on non-touch devices. Mobile entry UI belongs to the host. */
+  /**
+   * Shows the launcher again after hideLauncher(): the docked tab, or on
+   * screens up to 480px wide the floating button in the bottom corner.
+   */
   showLauncher(): void {
     instance?.showLauncher()
   },

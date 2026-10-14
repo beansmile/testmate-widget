@@ -258,6 +258,30 @@
   background: var(--mtb-tab-active-bg);
 }
 
+/* The icon is the phone form's whole face (below 480px). On the docked tab
+   the label does the talking and the icon stays out of the vertical text. */
+.mtb-tab-icon {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.mtb-tab-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.mtb-tab-icon-exit,
+.mtb-tab.active .mtb-tab-icon-launch {
+  display: none;
+}
+
+.mtb-tab.active .mtb-tab-icon-exit {
+  display: block;
+}
+
 /* ===== Hint bar =====
    Words only, no controls, so it never takes a click — the page underneath is
    always reachable through it. Dimming while the pointer is on top of it is the
@@ -1846,6 +1870,13 @@
 
 /* ── Axis 1: touch targets (Apple HIG 44pt / Material 48dp) ───────────── */
 @media (pointer: coarse) {
+  /* The docked tab is 32px wide — under a fingertip. A tablet or a phone in
+     landscape keeps the tab (the phone form below is width-keyed) at a width
+     a thumb can hit. */
+  .mtb-tab {
+    width: 44px;
+  }
+
   /* A floor, not a fixed height: a touch laptop wider than 480px still gets the
      vertical bar, and pinning it to 48px would crush three stacked buttons. The
      phone width rule below sets its own height and wins by order. */
@@ -2045,6 +2076,58 @@
   .mtb-frustration-dismiss {
     flex: 1;
     min-height: 44px;
+  }
+
+  /* ── Launcher: floating button ─────────────────────────────────────── */
+  /* Phones once got no launcher at all: 32px of vertical text halfway down
+     the edge is hard to find — its own author missed it on a test page — and
+     a narrow layout has no margin to dock anything to. A round button in the
+     bottom corner is where a thumb expects one, clear of the page's header
+     and of the top strip the toolbar takes over. Same element, same click;
+     only the form changes. */
+  .mtb-tab {
+    top: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    right: calc(16px + env(safe-area-inset-right, 0px));
+    transform: none;
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border-radius: 50%;
+    writing-mode: horizontal-tb;
+    box-shadow: 0 6px 20px rgba(var(--mtb-tab-shadow-color), 0.4);
+    transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+
+  .mtb-tab.left {
+    right: auto;
+    left: calc(16px + env(safe-area-inset-left, 0px));
+    border-radius: 50%;
+    box-shadow: 0 6px 20px rgba(var(--mtb-tab-shadow-color), 0.4);
+  }
+
+  /* No edge to glow from; a tap presses instead. */
+  .mtb-tab:hover {
+    box-shadow: 0 6px 20px rgba(var(--mtb-tab-shadow-color), 0.4);
+  }
+
+  .mtb-tab:active {
+    transform: scale(0.94);
+  }
+
+  .mtb-tab .mtb-tab-label {
+    display: none;
+  }
+
+  .mtb-tab .mtb-tab-icon {
+    display: flex;
+  }
+
+  /* The chat card, the receipt and the frustration prompt are all full-width
+     sheets on this corner. The launcher yields while one is up (tab.ts keeps
+     the class current); it would otherwise float over the sheet's buttons. */
+  .mtb-tab.mtb-tab--yielding {
+    display: none;
   }
 
   /* ── Chat popup: bottom sheet ──────────────────────────────────────── */

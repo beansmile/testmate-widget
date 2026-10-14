@@ -229,11 +229,10 @@ describe('public API', () => {
       expect(shadow().querySelector('.mtb-overlay')).not.toBeNull()
     })
 
-    it('keeps the launcher absent on narrow screens and respects explicit hiding after resize', () => {
+    it('mounts the launcher on narrow screens and keeps an explicit hide across resizes', () => {
       vi.stubGlobal('innerWidth', 393)
       MakeThisBetter.init({ projectKey: 'acme' })
-      MakeThisBetter.showLauncher()
-      expect(tab()).toBeNull()
+      expect(tab()).not.toBeNull()
 
       MakeThisBetter.hideLauncher()
       vi.stubGlobal('innerWidth', 1024)

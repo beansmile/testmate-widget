@@ -192,7 +192,7 @@ describe('MakeThisBetter widget flow', () => {
     beforeEach(() => { setPointerCoarse(true) })
     afterEach(() => { setPointerCoarse(false) })
 
-    // open() rather than a tab click: touch gets no launcher of ours, so this
+    // open() rather than a tab click: the entry point is not what is under test, so this
     // is the only way in — the same one a host site's own button uses.
     function openMarkup(): ShadowRoot {
       MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
@@ -244,22 +244,56 @@ describe('MakeThisBetter widget flow', () => {
       expect(shadow.querySelector('.mtb-hint-bar')!.classList.contains('mtb-hint-bar--dismissed')).toBe(true)
     })
 
-    // The tab is 36x40 of someone else's screen and hard to find — its own
-    // author missed it on a test page. Where a feedback entry belongs on a
-    // narrow screen is the host's call, so touch gets none by default.
-    it('renders no launcher of its own', () => {
+    // Touch used to get no launcher at all, on the grounds that the docked tab
+    // was hard to find on a phone. The phone form is now a floating button
+    // (CSS, width-keyed), so the same button mounts on every device and a
+    // reporter on a phone has the same entry point as one at a desk.
+    it('renders the launcher like any other device', () => {
       MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
       const shadow = document.getElementById('mtb-widget-host')!.shadowRoot!
 
-      expect(shadow.querySelector('.mtb-tab')).toBeNull()
+      const tab = shadow.querySelector<HTMLButtonElement>('.mtb-tab')
+      expect(tab).not.toBeNull()
+      expect(tab!.querySelector('.mtb-tab-icon svg')).not.toBeNull()
+      tab!.click()
+      expect(shadow.querySelector('.mtb-overlay')).not.toBeNull()
     })
 
-    it('does not render its launcher when the host calls showLauncher()', () => {
-      MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
-      MakeThisBetter.showLauncher()
+    it('still renders nothing under entryMode: "api"', () => {
+      MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1', entryMode: 'api' })
       const shadow = document.getElementById('mtb-widget-host')!.shadowRoot!
 
       expect(shadow.querySelector('.mtb-tab')).toBeNull()
+      MakeThisBetter.showLauncher()
+      expect(shadow.querySelector('.mtb-tab')).not.toBeNull()
+    })
+
+    it('brings the launcher back with showLauncher() after hideLauncher()', () => {
+      MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+      const shadow = document.getElementById('mtb-widget-host')!.shadowRoot!
+      MakeThisBetter.hideLauncher()
+      expect(shadow.querySelector('.mtb-tab')).toBeNull()
+
+      MakeThisBetter.showLauncher()
+      expect(shadow.querySelector('.mtb-tab')).not.toBeNull()
+    })
+
+    // On a phone the chat card is a full-width bottom sheet, docked to the
+    // same corner as the floating launcher. The launcher has to step aside for
+    // exactly as long as the card is up — including after a successful submit,
+    // when the toolbar (whose host attribute hides the tab) is already gone.
+    it('yields to the note sheet and comes back when it closes', async () => {
+      const shadow = openMarkup()
+      const tab = shadow.querySelector<HTMLButtonElement>('.mtb-tab')!
+      expect(tab.classList.contains('mtb-tab--yielding')).toBe(false)
+
+      performDrawStroke(shadow.querySelector<HTMLDivElement>('.mtb-overlay')!)
+      await vi.waitFor(() => expect(shadow.querySelector('.mtb-chat')).not.toBeNull())
+      await vi.waitFor(() => expect(tab.classList.contains('mtb-tab--yielding')).toBe(true))
+
+      MakeThisBetter.close()
+      await vi.waitFor(() => expect(shadow.querySelector('.mtb-chat')).toBeNull())
+      await vi.waitFor(() => expect(tab.classList.contains('mtb-tab--yielding')).toBe(false))
     })
 
     it('leaves the body untouched on entering markup', () => {
