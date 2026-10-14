@@ -184,22 +184,12 @@ export class WidgetController implements ModeHost {
       return
     }
 
-    // A phone gets no launcher of ours. The edge tab is 36x40 of someone
-    // else's screen, and it is genuinely hard to find — its own author missed
-    // it on a test page — while a narrow layout has no spare margin to dock
-    // anything to. Where a feedback entry belongs on a phone is the host's
-    // call, not a third-party script's, so touch renders nothing and waits for
-    // open() from the host's own UI.
-    if (isTouchPointer()) {
-      if (isLocalHost()) {
-        console.warn(
-          '[TestMate] No launcher is rendered on touch devices. ' +
-          'Call TestMate.open() from your own mobile UI.',
-        )
-      }
-      return
-    }
-
+    // Every device gets a launcher. Phones used to be skipped — the docked
+    // tab was 32px of vertical text at mid-edge, hard to find and with no
+    // margin to dock to on a narrow layout — but the answer to a bad form is
+    // a better one, not none: below 480px the same button becomes a round
+    // floating control in the bottom corner (widget.css). Hosts that want
+    // their own entry point set entryMode: 'api' above.
     this.mountTab()
   }
 
@@ -226,7 +216,6 @@ export class WidgetController implements ModeHost {
   }
 
   showLauncher(): void {
-    if (isTouchPointer()) return
     this.mountTab()
     this.tab?.setActive(this.state.launcherLit)
   }

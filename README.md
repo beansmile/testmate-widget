@@ -58,9 +58,9 @@ TestMate.init({
 | `apiUrl` | `string` | `https://testmate.beansmile.ai/api/v1` | API 地址，自建或本地联调时覆盖 |
 | `recorderUrl` | `string` | `https://testmate.beansmile.ai/widget/rrweb-record.js` | 录屏脚本地址（首次录屏时才加载） |
 | `locale` | `string` | `<html lang>`，再回退到 `en` | `zh-CN` / `en` / `ja` / `ko` / `de` / `fr` / `es`；`fr-CA` 这类会退回 `fr` |
-| `position` | `'left' \| 'right'` | `'right'` | 侧边标签位置 |
-| `tabText` | `string` | 当前语言的「反馈」 | 侧边标签文字 |
-| `entryMode` | `'button' \| 'api'` | `'button'` | `api` 时不渲染标签，由你调用 `TestMate.open()` |
+| `position` | `'left' \| 'right'` | `'right'` | 侧边标签位置；手机上则是悬浮按钮所在的角 |
+| `tabText` | `string` | 当前语言的「反馈」 | 侧边标签文字（手机按钮只显示图标，文字作为无障碍名称） |
+| `entryMode` | `'button' \| 'api'` | `'button'` | `api` 时任何设备都不渲染入口按钮，由你调用 `TestMate.open()` |
 | `theme` | `'light' \| 'dark' \| 'auto'` | `'auto'` | 主题 |
 | `brandColors` | `{ primary, hover, active, onPrimary }` | 默认绿色 | 四个值都必须是 `#RRGGBB`，否则整组忽略 |
 | `frustrationDetection` | `boolean` | `true` | 检测用户受挫（连点、报错等）时主动提示 |
@@ -69,6 +69,8 @@ TestMate.init({
 | `userTokenFn` | `() => Promise<string>` | — | 每次请求前获取新 JWT（推荐） |
 
 API：`TestMate.init(config)`、`destroy()`、`open()`、`close()`、`showLauncher()`、`hideLauncher()`、`setLocale(locale)`。
+
+**入口按钮。** 桌面端是贴在页面侧边的标签；宽度不超过 480px 的屏幕（手机）改为右下角（或左下角）的圆形悬浮按钮，52px、避开安全区，并在反馈卡片、回执或受挫提示打开时自动让位。更宽的触屏设备（平板、横屏手机）仍用侧边标签，宽度放大到 44px 便于点按。`hideLauncher()` / `showLauncher()` 在所有设备上行为一致；`entryMode: 'api'` 则在任何设备上都不渲染内置入口。
 
 ## 身份验证（JWT）
 
@@ -174,9 +176,9 @@ Build outputs: `dist/testmate.iife.js` (classic script, `window.TestMate`), `dis
 | `apiUrl` | `string` | `https://testmate.beansmile.ai/api/v1` | Override for self-hosted / local servers |
 | `recorderUrl` | `string` | `https://testmate.beansmile.ai/widget/rrweb-record.js` | rrweb recorder, loaded on first recording |
 | `locale` | `string` | `<html lang>`, then `en` | `zh-CN`, `en`, `ja`, `ko`, `de`, `fr`, `es`; region tags fall back (`fr-CA` → `fr`) |
-| `position` | `'left' \| 'right'` | `'right'` | Docked tab side |
-| `tabText` | `string` | locale's "Feedback" | Tab label |
-| `entryMode` | `'button' \| 'api'` | `'button'` | `api` renders no tab; call `TestMate.open()` |
+| `position` | `'left' \| 'right'` | `'right'` | Side of the docked tab; on phones, the corner of the floating button |
+| `tabText` | `string` | locale's "Feedback" | Tab label (the phone button shows an icon and uses it as its accessible name) |
+| `entryMode` | `'button' \| 'api'` | `'button'` | `api` renders no launcher on any device; call `TestMate.open()` from your own UI |
 | `theme` | `'light' \| 'dark' \| 'auto'` | `'auto'` | |
 | `brandColors` | `{ primary, hover, active, onPrimary }` | green | All four as `#RRGGBB` or the group is ignored |
 | `frustrationDetection` | `boolean` | `true` | Proactive prompt on rage clicks / errors |
@@ -185,6 +187,8 @@ Build outputs: `dist/testmate.iife.js` (classic script, `window.TestMate`), `dis
 | `userTokenFn` | `() => Promise<string>` | — | Fresh JWT before each request (recommended) |
 
 Methods: `init`, `destroy`, `open`, `close`, `showLauncher`, `hideLauncher`, `setLocale`.
+
+**Launcher.** Desktop gets a tab docked to the side of the page. Screens up to 480px wide (phones) get the same button as a round floating control in the bottom corner instead, 52px with safe-area insets, and it hides itself while the feedback sheet, the receipt or the frustration prompt is open. Touch devices wider than that (tablets, phones in landscape) keep the docked tab at a 44px tap width. `hideLauncher()` / `showLauncher()` work the same everywhere; `entryMode: 'api'` turns the built-in launcher off on every device.
 
 ### Identity (JWT)
 

@@ -123,48 +123,80 @@ describe('FeedbackTab', () => {
 
     shadow.destroy()
   })
-  it.each([393, 480])('does not mount a button at %ipx', (width) => {
+  // The phone form is pure CSS keyed on viewport width, so the button mounts
+  // at every width — the old width-keyed unmount is gone with the no-launcher
+  // policy it served.
+  it.each([393, 480, 1024])('mounts exactly one button at %ipx', (width) => {
     vi.stubGlobal('innerWidth', width)
-    const { shadow, tab } = setupTab()
+    const { shadow, tab, onClick } = setupTab()
 
-    expect(shadow.root.querySelector('.mtb-tab')).toBeNull()
-
-    tab.destroy()
-    shadow.destroy()
-  })
-
-  it('removes the button on narrow screens and restores one active button on desktop', () => {
-    vi.stubGlobal('innerWidth', 481)
-    const { shadow, tab, onClick, messages } = setupTab('left')
-    expect(shadow.root.querySelectorAll('.mtb-tab')).toHaveLength(1)
-
-    vi.stubGlobal('innerWidth', 393)
-    window.dispatchEvent(new Event('resize'))
-    expect(shadow.root.querySelector('.mtb-tab')).toBeNull()
-    tab.setActive(true)
-
-    vi.stubGlobal('innerWidth', 481)
-    window.dispatchEvent(new Event('resize'))
+    const buttons = shadow.root.querySelectorAll<HTMLButtonElement>('.mtb-tab')
+    expect(buttons).toHaveLength(1)
     window.dispatchEvent(new Event('resize'))
     expect(shadow.root.querySelectorAll('.mtb-tab')).toHaveLength(1)
-    const button = shadow.root.querySelector<HTMLButtonElement>('.mtb-tab')!
-    expect(button.textContent).toBe(messages.toolbar.exit)
-    expect(button.classList.contains('left')).toBe(true)
-    button.click()
+    buttons[0].click()
     expect(onClick).toHaveBeenCalledOnce()
 
     tab.destroy()
     shadow.destroy()
   })
 
-  it('never remounts a destroyed button when the screen widens', () => {
-    vi.stubGlobal('innerWidth', 393)
+  it('carries a launch icon and an exit icon for the phone form', () => {
+    const { shadow, tab, messages } = setupTab()
+    const button = shadow.root.querySelector<HTMLButtonElement>('.mtb-tab')!
+
+    expect(button.querySelector('.mtb-tab-icon-launch')).not.toBeNull()
+    expect(button.querySelector('.mtb-tab-icon-exit')).not.toBeNull()
+    expect(button.querySelector('.mtb-tab-icon')!.getAttribute('aria-hidden')).toBe('true')
+    // The icons add no text: the accessible name is still the label alone.
+    expect(button.textContent).toBe(messages.tab)
+
+    tab.setActive(true)
+    expect(button.textContent).toBe(messages.toolbar.exit)
+    expect(button.getAttribute('aria-label')).toBe(messages.toolbar.exit)
+
+    tab.destroy()
+    shadow.destroy()
+  })
+
+  // The chat card and the frustration prompt are full-width bottom sheets on a
+  // phone, docked to the launcher's corner. The class is what the narrow-width
+  // CSS keys on to hide the launcher for exactly as long as one is up.
+  it.each(['mtb-chat', 'mtb-frustration-prompt'])('yields while a .%s surface is mounted', async (cls) => {
     const { shadow, tab } = setupTab()
+    const button = shadow.root.querySelector<HTMLButtonElement>('.mtb-tab')!
+    expect(button.classList.contains('mtb-tab--yielding')).toBe(false)
+
+    const surface = shadow.el('div', cls)
+    shadow.append(surface)
+    await vi.waitFor(() => expect(button.classList.contains('mtb-tab--yielding')).toBe(true))
+
+    shadow.remove(surface)
+    await vi.waitFor(() => expect(button.classList.contains('mtb-tab--yielding')).toBe(false))
+
+    tab.destroy()
+    shadow.destroy()
+  })
+
+  it('yields from the start when mounted under an open surface', () => {
+    const shadow = new ShadowContainer()
+    shadow.append(shadow.el('div', 'mtb-chat'))
+    const tab = new FeedbackTab(shadow, getMessages('en'), 'right', vi.fn())
+
+    expect(shadow.root.querySelector('.mtb-tab')!.classList.contains('mtb-tab--yielding')).toBe(true)
+
+    tab.destroy()
+    shadow.destroy()
+  })
+
+  it('stops watching the shadow root once destroyed', async () => {
+    const { shadow, tab } = setupTab()
+    const button = shadow.root.querySelector<HTMLButtonElement>('.mtb-tab')!
     tab.destroy()
 
-    vi.stubGlobal('innerWidth', 1024)
-    window.dispatchEvent(new Event('resize'))
-    expect(shadow.root.querySelector('.mtb-tab')).toBeNull()
+    shadow.append(shadow.el('div', 'mtb-chat'))
+    await Promise.resolve()
+    expect(button.classList.contains('mtb-tab--yielding')).toBe(false)
 
     shadow.destroy()
   })
