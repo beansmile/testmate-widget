@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { ApiClient, FINALIZE_TIMEOUT_MS } from './client'
+import { ApiClient, ApiError, FINALIZE_TIMEOUT_MS, UploadRejectedError } from './client'
 import type { FeedbackPayload } from '../types'
 
 const mockPayload: FeedbackPayload = {
@@ -413,5 +413,105 @@ describe('ApiClient', () => {
         headers: expect.objectContaining({ 'X-Submission-Token': 'secret' }),
       }),
     )
+  })
+})
+
+describe('ApiClient.uploadImage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const json = (body: unknown, status: number) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+  it('posts one file in the image field with the session headers and capture policy', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      json({ upload: { id: 'up_1', content_type: 'image/png', size: 4 } }, 201),
+    )
+    const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    const file = new File([new Uint8Array([1, 2, 3, 4])], 'new-hero.png', { type: 'image/png' })
+
+    await expect(client.uploadImage('submission_1', 'secret', file)).resolves.toEqual({
+      id: 'up_1',
+      content_type: 'image/png',
+      size: 4,
+    })
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.example.com/api/v1/widget/feedback_submission_sessions/submission_1/uploads')
+    expect(init.method).toBe('POST')
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-Project-Key']).toBe('acme')
+    expect(headers['X-Submission-Token']).toBe('secret')
+    expect(headers['X-MTB-Capture-Policy']).toBe('sensitive-data-v1')
+    // The browser has to write the multipart boundary itself.
+    expect(headers['Content-Type']).toBeUndefined()
+    const body = init.body as FormData
+    const part = body.get('image') as File
+    expect(part).toBeInstanceOf(Blob)
+    expect(part.name).toBe('new-hero.png')
+    expect([...body.keys()]).toEqual(['image'])
+  })
+
+  it('names a bare Blob after its type', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      json({ upload: { id: 'up_1', content_type: 'image/jpeg', size: 1 } }, 201),
+    )
+    const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com' })
+    await client.uploadImage('s', 't', new Blob([new Uint8Array([1])], { type: 'image/jpeg' }))
+    const body = (fetchSpy.mock.calls[0][1] as RequestInit).body as FormData
+    expect((body.get('image') as File).name).toBe('image.jpg')
+  })
+
+  it('maps 413 to upload_too_large with the server ceiling', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      json({ error: { code: 'upload_too_large', max_bytes: 10485760 } }, 413),
+    )
+    const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com' })
+    const error = await client.uploadImage('s', 't', new Blob(['x'], { type: 'image/png' })).catch(e => e)
+    expect(error).toBeInstanceOf(UploadRejectedError)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(413)
+    expect(error.code).toBe('upload_too_large')
+    expect(error.maxBytes).toBe(10485760)
+  })
+
+  it.each(['too_many_uploads', 'unsupported_image_type', 'capture_policy_required'])(
+    'maps 422 %s to a typed rejection',
+    async (code) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({ error: { code } }, 422))
+      const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com' })
+      const error = await client.uploadImage('s', 't', new Blob(['x'], { type: 'image/png' })).catch(e => e)
+      expect(error).toBeInstanceOf(UploadRejectedError)
+      expect(error.code).toBe(code)
+    },
+  )
+
+  it('maps 404 to session_inactive without retrying', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }))
+    const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com', retryDelayMs: 0 })
+    const error = await client.uploadImage('s', 't', new Blob(['x'], { type: 'image/png' })).catch(e => e)
+    expect(error).toBeInstanceOf(UploadRejectedError)
+    expect(error.code).toBe('session_inactive')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a network failure once, then succeeds', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(json({ upload: { id: 'up_2', content_type: 'image/png', size: 1 } }, 201))
+    const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com', retryDelayMs: 0 })
+    await expect(client.uploadImage('s', 't', new Blob(['x'], { type: 'image/png' }))).resolves.toMatchObject({ id: 'up_2' })
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('surfaces a persistent 5xx as a retryable ApiError, not a rejection', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 503 }))
+    const client = new ApiClient({ projectKey: 'acme', apiUrl: 'https://api.example.com', retryDelayMs: 0 })
+    const error = await client.uploadImage('s', 't', new Blob(['x'], { type: 'image/png' })).catch(e => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).not.toBeInstanceOf(UploadRejectedError)
+    expect(error.status).toBe(503)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 })

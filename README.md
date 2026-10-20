@@ -64,6 +64,7 @@ TestMate.init({
 | `theme` | `'light' \| 'dark' \| 'auto'` | `'auto'` | 主题 |
 | `brandColors` | `{ primary, hover, active, onPrimary }` | 默认绿色 | 四个值都必须是 `#RRGGBB`，否则整组忽略 |
 | `frustrationDetection` | `boolean` | `true` | 检测用户受挫（连点、报错等）时主动提示 |
+| `uploads` | `boolean` | `true` | 在反馈输入框显示回形针，反馈者可附上最多 5 张自己的图片（PNG / JPEG / WebP / GIF，单张压缩后不超过 10 MB）；`false` 隐藏 |
 | `user` | `{ id?, email?, name? }` | — | 匿名模式下的反馈者信息；有有效 JWT 时被忽略 |
 | `userToken` | `string` | — | 身份 JWT（见下文） |
 | `userTokenFn` | `() => Promise<string>` | — | 每次请求前获取新 JWT（推荐） |
@@ -182,6 +183,7 @@ Build outputs: `dist/testmate.iife.js` (classic script, `window.TestMate`), `dis
 | `theme` | `'light' \| 'dark' \| 'auto'` | `'auto'` | |
 | `brandColors` | `{ primary, hover, active, onPrimary }` | green | All four as `#RRGGBB` or the group is ignored |
 | `frustrationDetection` | `boolean` | `true` | Proactive prompt on rage clicks / errors |
+| `uploads` | `boolean` | `true` | Paperclip in the note composer: reporters attach up to 5 images of their own (PNG / JPEG / WebP / GIF, each downscaled to ≤ 2560 px and ≤ 10 MB); `false` hides it |
 | `user` | `{ id?, email?, name? }` | — | Anonymous reporter info; ignored when a valid JWT is present |
 | `userToken` | `string` | — | Identity JWT |
 | `userTokenFn` | `() => Promise<string>` | — | Fresh JWT before each request (recommended) |

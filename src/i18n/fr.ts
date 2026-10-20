@@ -90,4 +90,13 @@ export default {
     error: 'Impossible de charger la question. Envoyez votre avis tel quel.',
     expired: 'Cette session de retour a expiré avant d\'avoir pu être envoyée. Fermez le widget et renvoyez-la.',
   },
+  attachments: {
+    add: 'Joindre des images',
+    count: '{count}/{max}',
+    remove: 'Retirer {name}',
+    too_many: "Jusqu'à {max} images",
+    too_large: 'Chaque image doit faire moins de {max} Mo',
+    unsupported: 'Uniquement PNG, JPEG, WebP ou GIF',
+    upload_failed: "Impossible d'envoyer vos images. Réessayez.",
+  },
 }

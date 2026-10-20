@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatPopup } from './chat-popup'
 import { ShadowContainer } from '../widget/shadow'
 import { getMessages } from '../i18n'
@@ -460,7 +460,7 @@ describe('ChatPopup category chips', () => {
     shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-send')!.click()
 
     await vi.waitFor(() => expect(opts['onSubmit']).toHaveBeenCalledTimes(1))
-    expect(opts['onSubmit']).toHaveBeenCalledWith("Something's broken: The save button does nothing")
+    expect(opts['onSubmit']).toHaveBeenCalledWith("Something's broken: The save button does nothing", [])
     popup.destroy()
     shadow.destroy()
   })
@@ -479,7 +479,7 @@ describe('ChatPopup category chips', () => {
 
     chips(shadow)[2]!.click()
     send.click()
-    await vi.waitFor(() => expect(opts['onSubmit']).toHaveBeenCalledWith("I'm confused"))
+    await vi.waitFor(() => expect(opts['onSubmit']).toHaveBeenCalledWith("I'm confused", []))
     popup.destroy()
     shadow.destroy()
   })
@@ -530,6 +530,186 @@ describe('ChatPopup category chips', () => {
 
     expect(save).toHaveBeenCalledTimes(1)
     expect(opts['onSubmit']).toHaveBeenCalledTimes(1)
+    shadow.destroy()
+  })
+})
+
+describe('ChatPopup attachments', () => {
+  let urls = 0
+  const revoked: string[] = []
+
+  beforeEach(() => {
+    urls = 0
+    revoked.length = 0
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(() => `blob:mock/${++urls}`),
+      revokeObjectURL: vi.fn((url: string) => { revoked.push(url) }),
+    }))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const png = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' })
+
+  function type(shadow: ShadowContainer, text: string) {
+    const input = shadow.root.querySelector<HTMLTextAreaElement>('.mtb-chat-input')!
+    input.value = text
+    input.dispatchEvent(new Event('input'))
+  }
+
+  function pick(shadow: ShadowContainer, files: File[]): void {
+    const input = shadow.root.querySelector<HTMLInputElement>('.mtb-chat-attach-input')!
+    Object.defineProperty(input, 'files', { value: files, configurable: true })
+    input.dispatchEvent(new Event('change'))
+  }
+
+  const thumbs = (shadow: ShadowContainer) => Array.from(shadow.root.querySelectorAll<HTMLElement>('.mtb-chat-thumb'))
+  const errorText = (shadow: ShadowContainer) => {
+    const el = shadow.root.querySelector<HTMLElement>('.mtb-chat-attach-error')!
+    return el.hidden ? '' : el.textContent
+  }
+
+  it('has no paperclip unless enabled', () => {
+    const { shadow, popup } = mountPopup()
+    expect(shadow.root.querySelector('.mtb-chat-attach')).toBeNull()
+    expect(shadow.root.querySelector('.mtb-chat-attach-input')).toBeNull()
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('renders an accessible paperclip with a hidden, untabbable image picker', () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    const button = shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-attach')!
+    expect(button.getAttribute('aria-label')).toBe('Attach images')
+    const input = shadow.root.querySelector<HTMLInputElement>('.mtb-chat-attach-input')!
+    expect(input.type).toBe('file')
+    expect(input.multiple).toBe(true)
+    expect(input.accept).toBe('image/png,image/jpeg,image/webp,image/gif')
+    expect(input.hidden).toBe(true)
+    const clicked = vi.spyOn(input, 'click').mockImplementation(() => {})
+    button.click()
+    expect(clicked).toHaveBeenCalled()
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('shows thumbnails with a counter, removes one, and sends the rest', async () => {
+    const { shadow, popup, opts } = mountPopup({ attachments: true })
+    pick(shadow, [png('a.png'), png('b.png')])
+
+    await vi.waitFor(() => expect(thumbs(shadow)).toHaveLength(2))
+    expect(shadow.root.querySelector('.mtb-chat-thumbs')!.hasAttribute('hidden')).toBe(false)
+    expect(shadow.root.querySelector('.mtb-chat-attach-count')!.textContent).toBe('2/5')
+    expect(thumbs(shadow)[0].querySelector('img')!.getAttribute('src')).toBe('blob:mock/1')
+
+    const remove = thumbs(shadow)[0].querySelector<HTMLButtonElement>('.mtb-chat-thumb-remove')!
+    expect(remove.getAttribute('aria-label')).toBe('Remove a.png')
+    remove.click()
+    expect(thumbs(shadow)).toHaveLength(1)
+    expect(revoked).toEqual(['blob:mock/1'])
+    expect(shadow.root.querySelector('.mtb-chat-attach-count')!.textContent).toBe('1/5')
+
+    type(shadow, 'Use this hero instead')
+    shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-send')!.click()
+    await vi.waitFor(() => expect(opts['onSubmit']).toHaveBeenCalledTimes(1))
+    const [description, files] = (opts['onSubmit'] as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(description).toBe('Use this hero instead')
+    expect((files as File[]).map(f => f.name)).toEqual(['b.png'])
+
+    // Gone after send, like the screenshot toggle, with its preview released.
+    expect(shadow.root.querySelector('.mtb-chat-thumbs')).toBeNull()
+    expect(shadow.root.querySelector('.mtb-chat-attach')).toBeNull()
+    expect(revoked).toEqual(['blob:mock/1', 'blob:mock/2'])
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('stops at five and says so', async () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    pick(shadow, ['1', '2', '3', '4', '5', '6'].map(n => png(`${n}.png`)))
+    await vi.waitFor(() => expect(thumbs(shadow)).toHaveLength(5))
+    expect(errorText(shadow)).toBe('Up to 5 images')
+    expect(shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-attach')!.disabled).toBe(true)
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('rejects files that are not images', async () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    pick(shadow, [new File(['x'], 'notes.pdf', { type: 'application/pdf' })])
+    await vi.waitFor(() => expect(errorText(shadow)).toBe('Only PNG, JPEG, WebP or GIF'))
+    expect(thumbs(shadow)).toHaveLength(0)
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('reports an image over the size ceiling', async () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    pick(shadow, [new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'huge.gif', { type: 'image/gif' })])
+    await vi.waitFor(() => expect(errorText(shadow)).toBe('Each image must be under 10 MB'))
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('attaches an image pasted into the text field', async () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    const input = shadow.root.querySelector<HTMLTextAreaElement>('.mtb-chat-input')!
+    const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+    Object.defineProperty(event, 'clipboardData', { value: { files: [png('clip.png')], types: ['Files'] } })
+    input.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    await vi.waitFor(() => expect(thumbs(shadow)).toHaveLength(1))
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('attaches images dropped onto the composer', async () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    const composer = shadow.root.querySelector<HTMLElement>('.mtb-chat-composer')!
+    const drop = new Event('drop', { bubbles: true, cancelable: true }) as DragEvent
+    Object.defineProperty(drop, 'dataTransfer', { value: { files: [png('d.png')], types: ['Files'] } })
+    composer.dispatchEvent(drop)
+    expect(drop.defaultPrevented).toBe(true)
+    await vi.waitFor(() => expect(thumbs(shadow)).toHaveLength(1))
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('resends the same files when the first send fails and Retry is pressed', async () => {
+    const onSubmit = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(makeSession({ ai_clarify_available: false }))
+    const { shadow, popup } = mountPopup({ attachments: true, onSubmit })
+    pick(shadow, [png('a.png')])
+    await vi.waitFor(() => expect(thumbs(shadow)).toHaveLength(1))
+    type(shadow, 'Swap it')
+    shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-send')!.click()
+    await vi.waitFor(() => expect(shadow.root.querySelector('.mtb-chat-error-retry')).toBeTruthy())
+    shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-error-retry')!.click()
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
+    expect((onSubmit.mock.calls[1][1] as File[]).map(f => f.name)).toEqual(['a.png'])
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('says the images failed, not the feedback, on an upload failure', () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    const retry = vi.fn()
+    popup.showFinalizeFailure(retry, 'uploads')
+    expect(shadow.root.querySelector('.mtb-chat-finalize-message')!.textContent).toBe("Couldn't upload your images. Try again.")
+    shadow.root.querySelector<HTMLButtonElement>('.mtb-chat-finalize-retry')!.click()
+    expect(retry).toHaveBeenCalled()
+    popup.destroy()
+    shadow.destroy()
+  })
+
+  it('releases previews on teardown', async () => {
+    const { shadow, popup } = mountPopup({ attachments: true })
+    pick(shadow, [png('a.png')])
+    await vi.waitFor(() => expect(thumbs(shadow)).toHaveLength(1))
+    popup.destroy()
+    expect(revoked).toEqual(['blob:mock/1'])
     shadow.destroy()
   })
 })

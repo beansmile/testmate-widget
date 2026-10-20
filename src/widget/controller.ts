@@ -117,7 +117,7 @@ export class WidgetController implements ModeHost {
       },
       {
         isBackground: () => this.state.kind === 'submitting',
-        onFinalizeFailure: (onRetry) => this.chatPopup?.showFinalizeFailure(onRetry),
+        onFinalizeFailure: (onRetry, reason) => this.chatPopup?.showFinalizeFailure(onRetry, reason),
         onReenterBackground: () => this.transitionTo(new SubmittingState(this)),
         onFinalized: (feedback, submission) => this.handleFinalized(feedback, submission),
       },
@@ -540,9 +540,12 @@ export class WidgetController implements ModeHost {
       targetRect,
       messages: this.messages,
       position: this.config.position ?? 'right',
-      onSubmit: async (description: string) => {
+      // The note composer is the one surface with a step for picking images;
+      // the draw flow submits straight from its bar and stays without them.
+      attachments: this.config.uploads !== false,
+      onSubmit: async (description: string, files: File[]) => {
         this.currentAnnotation = annotation ?? this.currentAnnotation
-        const session = await this.lifecycle.start(description, this.currentAnnotation, recordingResult)
+        const session = await this.lifecycle.start(description, this.currentAnnotation, recordingResult, files)
         if (session?.board_url) cacheBoardUrl(session.board_url)
         return session
       },

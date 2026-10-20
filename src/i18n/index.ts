@@ -24,3 +24,10 @@ export function getMessages(locale: string): I18nMessages {
   if (locales[lang]) return locales[lang]
   return locales['en']
 }
+
+/** Fills `{name}` placeholders; unknown names are left as written. */
+export function formatMessage(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
+    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match,
+  )
+}

@@ -2589,3 +2589,126 @@ describe('MakeThisBetter widget flow', () => {
     })
   })
 })
+
+describe('reporter-attached images', () => {
+  beforeEach(() => {
+    vi.stubGlobal('Image', ImmediatelyLoadingImage)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(screenshotCanvasContext())
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+      callback(new Blob(['jpeg'], { type: 'image/jpeg' }))
+    })
+    let n = 0
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(() => `blob:mock/${++n}`),
+      revokeObjectURL: vi.fn(),
+    }))
+  })
+
+  afterEach(() => {
+    MakeThisBetter.destroy()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    setPointerCoarse(false)
+    document.body.innerHTML = ''
+    document.body.removeAttribute('style')
+  })
+
+  const png = (name: string) => new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+
+  async function attach(shadow: ShadowRoot, files: File[]): Promise<void> {
+    const input = shadow.querySelector<HTMLInputElement>('.mtb-chat-attach-input')!
+    Object.defineProperty(input, 'files', { value: files, configurable: true })
+    input.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(shadow.querySelectorAll('.mtb-chat-thumb')).toHaveLength(files.length))
+  }
+
+  function host(): ShadowRoot {
+    return document.getElementById('mtb-widget-host')!.shadowRoot!
+  }
+
+  it('uploads the note composer\'s images after the Session and before finalize', async () => {
+    const calls: string[] = []
+    const uploadBodies: FormData[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const href = String(url)
+      // Only this submission's writes: an abandon DELETE left over from an
+      // earlier test can land on this spy under a loaded run.
+      if (init?.method !== 'DELETE') {
+        calls.push(href.replace('https://api.example.com/api/v1/widget/feedback_submission_sessions', '') || '/create')
+      }
+      if (href.endsWith('/uploads')) {
+        uploadBodies.push(init?.body as FormData)
+        return new Response(JSON.stringify({ upload: { id: `up_${uploadBodies.length}`, content_type: 'image/png', size: 4 } }), { status: 201 })
+      }
+      return sessionFlowResponse(url, init, { id: 'FB-1', status: 'received', project_id: 'acme' })
+    })
+
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    const shadow = host()
+    openCardWithPin(shadow)
+    setScreenshotAttached(shadow, false)
+    await attach(shadow, [png('hero.png'), png('logo.png')])
+    typeAndSubmit(shadow, 'Replace the hero with this one')
+
+    await awaitSubmissionSuccess(shadow)
+    await vi.waitFor(() => expect(calls).toContain('/submission_1/feedback'))
+    expect(calls).toEqual(['/create', '/submission_1/uploads', '/submission_1/uploads', '/submission_1/feedback'])
+    expect(uploadBodies.map(body => (body.get('image') as File).name)).toEqual(['hero.png', 'logo.png'])
+  })
+
+  it('shows the paperclip by default and hides it with uploads: false', () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) =>
+      sessionFlowResponse(url, init, { id: 'FB-1', status: 'received', project_id: 'acme' }))
+
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    openCardWithPin(host())
+    expect(host().querySelector('.mtb-chat-attach')).not.toBeNull()
+    MakeThisBetter.destroy()
+
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1', uploads: false })
+    openCardWithPin(host())
+    expect(host().querySelector('.mtb-chat')).not.toBeNull()
+    expect(host().querySelector('.mtb-chat-attach')).toBeNull()
+  })
+
+  it('keeps the touch draw sheet without a paperclip', () => {
+    setPointerCoarse(true)
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    MakeThisBetter.open()
+    performDrawStroke(host().querySelector<HTMLDivElement>('.mtb-overlay')!)
+    expect(host().querySelector('.mtb-chat')).not.toBeNull()
+    expect(host().querySelector('.mtb-chat-attach')).toBeNull()
+  })
+
+  it('holds the feedback on an upload failure and sends it after Retry', async () => {
+    let uploadAttempts = 0
+    let finalizes = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const href = String(url)
+      if (href.endsWith('/uploads')) {
+        uploadAttempts += 1
+        // Both of the client's own attempts fail the first time round.
+        if (uploadAttempts <= 2) throw new TypeError('Failed to fetch')
+        return new Response(JSON.stringify({ upload: { id: 'up_1', content_type: 'image/png', size: 4 } }), { status: 201 })
+      }
+      if (href.endsWith('/feedback')) finalizes += 1
+      return sessionFlowResponse(url, init, { id: 'FB-1', status: 'received', project_id: 'acme' })
+    })
+
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    const shadow = host()
+    openCardWithPin(shadow)
+    setScreenshotAttached(shadow, false)
+    await attach(shadow, [png('hero.png')])
+    typeAndSubmit(shadow, 'Use this image')
+
+    await vi.waitFor(() => expect(shadow.querySelector('.mtb-chat-finalize-failure')).not.toBeNull(), { timeout: 5000 })
+    expect(shadow.querySelector('.mtb-chat-finalize-message')?.textContent).toBe("Couldn't upload your images. Try again.")
+    expect(finalizes).toBe(0)
+
+    shadow.querySelector<HTMLButtonElement>('.mtb-chat-finalize-retry')!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('.mtb-chat-success-simple')).not.toBeNull(), { timeout: 5000 })
+    expect(uploadAttempts).toBe(3)
+    expect(finalizes).toBe(1)
+  })
+})

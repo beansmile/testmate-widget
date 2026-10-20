@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getMessages } from './index'
+import { formatMessage, getMessages } from './index'
 
 describe('getMessages', () => {
   it('returns English for "en"', () => {
@@ -39,5 +39,27 @@ describe('getMessages', () => {
       'Suggestion',
       'Confused',
     ])
+  })
+})
+
+describe('attachments strings', () => {
+  const locales = ['en', 'zh-CN', 'ja', 'ko', 'es', 'fr', 'de']
+
+  it('has every key in every locale with the placeholders the composer fills', () => {
+    const keys = Object.keys(getMessages('en').attachments).sort()
+    for (const locale of locales) {
+      const m = getMessages(locale).attachments
+      expect(Object.keys(m).sort(), locale).toEqual(keys)
+      expect(m.count, locale).toContain('{count}')
+      expect(m.count, locale).toContain('{max}')
+      expect(m.too_many, locale).toContain('{max}')
+      expect(m.too_large, locale).toContain('{max}')
+      expect(m.remove, locale).toContain('{name}')
+    }
+  })
+
+  it('formats placeholders', () => {
+    expect(formatMessage(getMessages('en').attachments.too_many, { max: 5 })).toBe('Up to 5 images')
+    expect(formatMessage('{count}/{max} {other}', { count: 2, max: 5 })).toBe('2/5 {other}')
   })
 })

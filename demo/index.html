@@ -518,7 +518,7 @@
 
   <script type="module" src="./main.ts"></script>
   <script type="module">
-    import { isDemoApiRequest, requestUrl } from './mock-api.ts'
+    import { DEMO_UPLOADS_MAX, isDemoApiRequest, mockUploadResponse, requestUrl } from './mock-api.ts'
 
     window.__MTB = TestMate
     const originalFetch = window.fetch.bind(window)
@@ -526,6 +526,9 @@
     const entryInstruction = document.getElementById('entry-instruction')
     let finalizeResponse = 'success'
     let finalizeFailureConsumed = false
+    // Every reporter image the mock API accepted, for poking at in the console.
+    const demoUploads = []
+    window.__MTB_UPLOADS = demoUploads
 
     customFeedbackButton.addEventListener('click', () => TestMate.open())
 
@@ -533,6 +536,12 @@
       const url = requestUrl(input)
 
       if (!isDemoApiRequest(input)) return originalFetch(input, init)
+
+      const uploadResponse = mockUploadResponse(input, init, demoUploads)
+      if (uploadResponse) {
+        console.log('[MTB demo] Mock upload:', uploadResponse.status, demoUploads.at(-1))
+        return uploadResponse
+      }
 
       if (url.endsWith('/feedback')) {
         if (finalizeResponse !== 'success') {
@@ -585,6 +594,8 @@
       }
 
       if (url.endsWith('/feedback_submission_sessions')) {
+        // The demo reuses one session id, so a fresh session starts a fresh tally.
+        demoUploads.length = 0
         const body = init?.body
         if (body instanceof FormData) {
           console.log('[MTB demo] Mock submission payload:', {
@@ -604,6 +615,7 @@
             id: 'submission_demo_1',
             token: 'demo-submission-token',
             ai_clarify_available: true,
+            uploads_max: DEMO_UPLOADS_MAX,
           },
         }), {
           status: 201,
