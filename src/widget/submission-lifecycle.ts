@@ -3,6 +3,8 @@ import type { BaseScreenshot } from '../screenshot/capture'
 import { collectSessionRecordings } from '../context/session-recordings'
 import { collectPageContext } from '../context/collector'
 import { buildPayload } from './payload'
+import { UploadQueue } from '../attachments/upload-queue'
+import { MAX_ATTACHMENTS } from '../attachments/prepare'
 import { getAnonId, getStoredReporterEmail, getStoredReporterName } from './anon-id'
 import type { ApiClient } from '../api/client'
 import type { ConsoleErrorCollector } from '../context/console'
@@ -17,6 +19,17 @@ const MIN_FINALIZE_LOADING_MS = 300
 export const IDLE_CAPTURE_MS = 900
 export const SCREENSHOT_WAIT_MS = 5_000
 
+/** Why a finalize could not go through, so the card can say the right thing. */
+export type FinalizeFailureReason = 'finalize' | 'uploads'
+
+/** Thrown by a foreground finalize when the reporter's own images did not make it up. */
+export class AttachmentUploadError extends Error {
+  constructor() {
+    super('Attachment upload failed')
+    this.name = 'AttachmentUploadError'
+  }
+}
+
 /**
  * Mode/UI transitions the lifecycle needs from its owner. The controller owns
  * mode and the launcher tab; the lifecycle only reports when a submission
@@ -26,8 +39,12 @@ export const SCREENSHOT_WAIT_MS = 5_000
 export interface SubmissionLifecycleHost {
   /** True once the conversation has transitioned to its final receipt state. */
   isBackground(): boolean
-  /** Replace the current conversation receipt with its retryable failure state. */
-  onFinalizeFailure(onRetry?: () => void): void
+  /**
+   * Replace the current conversation receipt with its retryable failure state.
+   * `reason` is 'uploads' when the feedback is fine but the reporter's attached
+   * images are not all on the server yet.
+   */
+  onFinalizeFailure(onRetry?: () => void, reason?: FinalizeFailureReason): void
   /** Return to the background-finalizing state ahead of a retry. */
   onReenterBackground(): void
   /** A finalize completed: hand off the feedback and show success. */
@@ -67,6 +84,7 @@ export class SubmissionLifecycle {
   private screenshotSessionReady: Promise<void> | null = null
   private resolveScreenshotSessionReady: (() => void) | null = null
   private screenshotEnabled = true
+  private uploads: UploadQueue | null = null
 
   constructor(
     private deps: SubmissionLifecycleDeps,
@@ -161,13 +179,21 @@ export class SubmissionLifecycle {
     return this.screenshotSessionReady
   }
 
+  /**
+   * `files` are the reporter's own images from the composer. They go up after
+   * the Session exists (they need its id and token), alongside the screenshot,
+   * and finalize waits for every one of them.
+   */
   start(
     description: string,
     annotation: Annotation | null,
     recording: RecordingResult | undefined,
+    files: readonly Blob[] = [],
   ): Promise<SubmissionSessionResponse | null> {
     const submissionAttempt = ++this.submissionAttempt
-    const request = this.createSubmission(description, annotation, recording, submissionAttempt)
+    this.uploads?.abort()
+    this.uploads = null
+    const request = this.createSubmission(description, annotation, recording, submissionAttempt, files)
     this.pendingSubmissionRequest = request
     return request
   }
@@ -177,6 +203,7 @@ export class SubmissionLifecycle {
     annotation: Annotation | null,
     recording: RecordingResult | undefined,
     submissionAttempt: number,
+    files: readonly Blob[],
   ): Promise<SubmissionSessionResponse | null> {
     await waitForPaint()
     if (submissionAttempt !== this.submissionAttempt) return null
@@ -269,6 +296,13 @@ export class SubmissionLifecycle {
       return null
     }
 
+    if (files.length > 0) {
+      // The server's cap wins; the composer already stops at the default.
+      const max = submission.uploads_max ?? MAX_ATTACHMENTS
+      this.uploads = new UploadQueue(this.deps.apiClient, submission, files.slice(0, Math.max(0, max)))
+      this.uploads.start()
+    }
+
     return submission
   }
 
@@ -292,8 +326,18 @@ export class SubmissionLifecycle {
       throw new Error('No active submission session')
     }
 
-    await this.waitForScreenshot()
+    // The screenshot is best-effort and gets a bounded wait; the reporter's
+    // own images are not, so they are waited out in full alongside it.
+    const uploads = this.uploads
+    const [, uploadsComplete] = await Promise.all([
+      this.waitForScreenshot(),
+      uploads ? uploads.settled() : Promise.resolve(true),
+    ])
     if (submissionAttempt !== this.submissionAttempt) return
+    if (!uploadsComplete) {
+      if (background) return this.showFinalizeFailure({ canRetry: true, reason: 'uploads' })
+      throw new AttachmentUploadError()
+    }
 
     // The loading floor protects the clarify card's busy state; on the
     // background path the card is gone, so waiting would only delay the result.
@@ -312,6 +356,7 @@ export class SubmissionLifecycle {
 
     this.activeSubmission = null
     this.pendingSubmissionRequest = null
+    if (this.uploads === uploads) this.uploads = null
     this.host.onFinalized(feedback, submission)
   }
 
@@ -333,14 +378,20 @@ export class SubmissionLifecycle {
     }
   }
 
-  private showFinalizeFailure(options: {canRetry: boolean}): void {
-    this.host.onFinalizeFailure(options.canRetry ? () => this.retryBackgroundFinalization() : undefined)
+  private showFinalizeFailure(options: {canRetry: boolean; reason?: FinalizeFailureReason}): void {
+    this.host.onFinalizeFailure(
+      options.canRetry ? () => this.retryBackgroundFinalization() : undefined,
+      options.reason ?? 'finalize',
+    )
   }
 
   private retryBackgroundFinalization(): void {
     // Re-enter the background state so another failure comes back to this card
     // rather than throwing with nothing on screen.
     this.host.onReenterBackground()
+    // Images that failed in transit go up again before finalize; a no-op when
+    // they all made it and it was the finalize itself that failed.
+    this.uploads?.retryFailed()
     void this.finalize().catch(() => this.showFinalizeFailure({canRetry: true}))
   }
 
@@ -355,6 +406,8 @@ export class SubmissionLifecycle {
     this.screenshotAbortController = null
     this.pendingScreenshotTask = null
     this.pendingBaseCapture = null
+    this.uploads?.abort()
+    this.uploads = null
     this.screenshotSession = null
     this.resolveScreenshotSessionReady?.()
     this.screenshotSessionReady = null

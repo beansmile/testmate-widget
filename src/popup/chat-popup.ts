@@ -1,5 +1,15 @@
 import type { ShadowContainer } from '../widget/shadow'
 import type { I18nMessages } from '../i18n'
+import { formatMessage } from '../i18n'
+import {
+  ACCEPTED_IMAGE_TYPES,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  looksLikeImage,
+  prepareAttachment,
+} from '../attachments/prepare'
+import type { PrepareFailure } from '../attachments/prepare'
+import type { FinalizeFailureReason } from '../widget/submission-lifecycle'
 import type { ClarifyStreamResult } from '../api/client'
 import type { ReporterDetails, SubmissionSessionResponse, TargetRect } from '../types'
 import { escapeHtml, isImeConfirmKeydown } from '../context/dom-utils'
@@ -28,7 +38,14 @@ interface ChatPopupOptions {
   position?: 'left' | 'right'
   screenshotEnabled?: boolean
   onScreenshotToggle?: (enabled: boolean) => void
-  onSubmit: (description: string) => Promise<SubmissionSessionResponse | null>
+  /**
+   * Show the paperclip: the reporter can attach images of their own, which
+   * reach `onSubmit` as `files`. Off for surfaces that have no composer step
+   * (the draw flow submits straight from its bar).
+   */
+  attachments?: boolean
+  /** `files` are the reporter's attached images, already downscaled and re-encoded. */
+  onSubmit: (description: string, files: File[]) => Promise<SubmissionSessionResponse | null>
   onClarify: (sessionId: string, token: string, onDelta: (text: string) => void, signal?: AbortSignal) => Promise<ClarifyStreamResult>
   onAnswer: (sessionId: string, token: string, message: string) => Promise<unknown>
   onFinalize: () => Promise<void> | void
@@ -51,6 +68,7 @@ const BRAND_ICON = '<svg viewBox="0 0 512 512" fill="none"><defs><linearGradient
 const CLOSE_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8.9 8l3.3-3.3-.9-.9L8 7.1 4.7 3.8l-.9.9L7.1 8l-3.3 3.3.9.9L8 8.9l3.3 3.3.9-.9z"/></svg>'
 const CAMERA_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.2 2.6h3.6l.9 1.4H14a1 1 0 011 1v7.4a1 1 0 01-1 1H2a1 1 0 01-1-1V5a1 1 0 011-1h3.3l.9-1.4z"/><circle cx="8" cy="9" r="2.5" class="mtb-chat-icon-lens"/></svg>'
 const RECORD_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6.6"/><polygon points="6.4,5.2 11,8 6.4,10.8" class="mtb-chat-icon-lens"/></svg>'
+const PAPERCLIP_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.2 7.6l-5.3 5.3a3.4 3.4 0 01-4.8-4.8l5.6-5.6a2.3 2.3 0 013.2 3.2L6.4 11.2a1.1 1.1 0 01-1.6-1.6l5-5"/></svg>'
 const CHECK_ICON = '<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M8.1 14.6L3.8 10.3l1.5-1.5 2.8 2.8 6.6-6.6 1.5 1.5z"/></svg>'
 
 export class ChatPopup {
@@ -72,6 +90,10 @@ export class ChatPopup {
   private category: string | null = null
   private clarifyAbort: AbortController | null = null
   private destroyed = false
+  /** Images the reporter attached, in the order they will upload. */
+  private attachments: { file: File; url: string }[] = []
+  /** Files still being decoded / downscaled; Send waits for them. */
+  private preparing = 0
 
   constructor(shadow: ShadowContainer, opts: ChatPopupOptions) {
     this.opts = opts
@@ -121,6 +143,15 @@ export class ChatPopup {
       .map(o => `<button class="mtb-chat-qr" type="button" aria-pressed="false" data-quick="${escapeHtml(o.label)}" data-value="${escapeHtml(o.value ?? o.label)}">${escapeHtml(o.emoji)} ${escapeHtml(o.label)}</button>`)
       .join('')
 
+    const attach = opts.attachments
+      ? `<button class="mtb-chat-attach" type="button" aria-label="${escapeHtml(m.attachments.add)}" title="${escapeHtml(m.attachments.add)}">${PAPERCLIP_ICON}<span class="mtb-chat-attach-count" hidden></span></button>
+          <input class="mtb-chat-attach-input" type="file" accept="${ACCEPTED_IMAGE_TYPES.join(',')}" multiple hidden tabindex="-1" aria-hidden="true">`
+      : ''
+    const strip = opts.attachments
+      ? `<div class="mtb-chat-thumbs" role="list" aria-label="${escapeHtml(m.attachments.add)}" hidden></div>
+        <div class="mtb-chat-attach-error" role="status" aria-live="polite" hidden></div>`
+      : ''
+
     const capture = opts.recordingSeconds != null
       ? `<span class="mtb-chat-attachment" title="${escapeHtml(m.popup.recording_locked_hint)}">${RECORD_ICON}<span class="mtb-chat-capture-label">${Math.round(opts.recordingSeconds)}s</span></span>`
       : opts.onScreenshotToggle
@@ -143,8 +174,10 @@ export class ChatPopup {
       <div class="mtb-chat-quick-replies">${quickOpts}</div>
       <div class="mtb-chat-composer">
         <textarea class="mtb-chat-input" rows="1" placeholder="${escapeHtml(m.popup.placeholder)}"></textarea>
+        ${strip}
         <div class="mtb-chat-actions">
           ${capture}
+          ${attach}
           <span class="mtb-chat-actions-gap"></span>
           <button class="mtb-chat-send" type="button" disabled>${escapeHtml(m.clarify.send)}</button>
         </div>
@@ -202,6 +235,165 @@ export class ChatPopup {
         this.opts.onScreenshotToggle!(!pressed)
       })
     }
+
+    if (this.opts.attachments) this.bindAttachmentEvents()
+  }
+
+  // ── Reporter-attached images ────────────────────────────────────────────
+
+  private bindAttachmentEvents(): void {
+    const button = this.el.querySelector<HTMLButtonElement>('.mtb-chat-attach')!
+    const input = this.el.querySelector<HTMLInputElement>('.mtb-chat-attach-input')!
+    button.addEventListener('click', () => input.click())
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files ?? [])
+      // Reset so picking the same file again (after removing it) still fires.
+      input.value = ''
+      void this.addAttachments(files)
+    })
+
+    // A screenshot pasted straight from the clipboard is the most common way
+    // an image ends up here. Text that comes along with it (some browsers put
+    // both on the clipboard) is still pasted as usual.
+    this.inputEl.addEventListener('paste', (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []).filter(file => looksLikeImage(file))
+      if (files.length === 0) return
+      if (!e.clipboardData?.types.includes('text/plain')) e.preventDefault()
+      void this.addAttachments(files)
+    })
+
+    // Dropping a file anywhere on the composer attaches it rather than letting
+    // the browser navigate away to the image.
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+    this.composerEl.addEventListener('dragover', (e: DragEvent) => {
+      if (!hasFiles(e) || this.state !== 'idle') return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      this.composerEl.classList.add('mtb-chat-composer-drop')
+    })
+    this.composerEl.addEventListener('dragleave', (e: DragEvent) => {
+      if (e.relatedTarget instanceof Node && this.composerEl.contains(e.relatedTarget)) return
+      this.composerEl.classList.remove('mtb-chat-composer-drop')
+    })
+    this.composerEl.addEventListener('drop', (e: DragEvent) => {
+      this.composerEl.classList.remove('mtb-chat-composer-drop')
+      if (!hasFiles(e) || this.state !== 'idle') return
+      e.preventDefault()
+      void this.addAttachments(Array.from(e.dataTransfer?.files ?? []))
+    })
+  }
+
+  private async addAttachments(files: File[]): Promise<void> {
+    if (files.length === 0 || this.state !== 'idle') return
+    this.showAttachError(null)
+    const room = MAX_ATTACHMENTS - this.attachments.length - this.preparing
+    let failure: PrepareFailure | 'too_many' | null = files.length > room ? 'too_many' : null
+    const accepted = files.slice(0, Math.max(0, room))
+
+    this.preparing += accepted.length
+    this.syncAttachments()
+    for (const file of accepted) {
+      let result: Awaited<ReturnType<typeof prepareAttachment>>
+      try {
+        result = await prepareAttachment(file)
+      } catch {
+        result = { ok: false, reason: 'unsupported' }
+      }
+      this.preparing -= 1
+      if (this.destroyed) return
+      // The reporter sent (or the card moved on) while this one was decoding.
+      if (this.state !== 'idle' || !this.thumbsEl()) continue
+      if (result.ok) {
+        this.attachments.push({ file: result.file, url: URL.createObjectURL(result.file) })
+      } else {
+        failure ??= result.reason
+      }
+    }
+    if (this.destroyed) return
+    this.renderThumbs()
+    this.syncAttachments()
+    if (failure) this.showAttachError(failure)
+  }
+
+  private removeAttachment(index: number): void {
+    const [removed] = this.attachments.splice(index, 1)
+    if (!removed) return
+    URL.revokeObjectURL(removed.url)
+    this.showAttachError(null)
+    this.renderThumbs()
+    this.syncAttachments()
+    // Keep keyboard focus in the strip (or back on the paperclip) instead of
+    // dropping it on <body> along with the button that was just removed.
+    const removes = this.el.querySelectorAll<HTMLButtonElement>('.mtb-chat-thumb-remove')
+    const next = removes[Math.min(index, removes.length - 1)]
+    ;(next ?? this.el.querySelector<HTMLButtonElement>('.mtb-chat-attach'))?.focus({ preventScroll: true })
+  }
+
+  private thumbsEl(): HTMLDivElement | null {
+    return this.el.querySelector<HTMLDivElement>('.mtb-chat-thumbs')
+  }
+
+  private renderThumbs(): void {
+    const strip = this.thumbsEl()
+    if (!strip) return
+    const m = this.i18n.attachments
+    strip.replaceChildren(...this.attachments.map((attachment, index) => {
+      const item = document.createElement('div')
+      item.className = 'mtb-chat-thumb'
+      item.setAttribute('role', 'listitem')
+      const img = document.createElement('img')
+      img.src = attachment.url
+      img.alt = attachment.file.name
+      img.draggable = false
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'mtb-chat-thumb-remove'
+      remove.setAttribute('aria-label', formatMessage(m.remove, { name: attachment.file.name }))
+      remove.innerHTML = CLOSE_ICON
+      remove.addEventListener('click', () => this.removeAttachment(index))
+      item.append(img, remove)
+      return item
+    }))
+    strip.hidden = this.attachments.length === 0
+  }
+
+  private syncAttachments(): void {
+    const count = this.attachments.length
+    const button = this.el.querySelector<HTMLButtonElement>('.mtb-chat-attach')
+    const counter = this.el.querySelector<HTMLSpanElement>('.mtb-chat-attach-count')
+    if (button) button.disabled = count + this.preparing >= MAX_ATTACHMENTS
+    if (counter) {
+      counter.hidden = count === 0
+      counter.textContent = formatMessage(this.i18n.attachments.count, { count, max: MAX_ATTACHMENTS })
+    }
+    this.syncSendEnabled()
+  }
+
+  private showAttachError(reason: PrepareFailure | 'too_many' | null): void {
+    const el = this.el.querySelector<HTMLDivElement>('.mtb-chat-attach-error')
+    if (!el) return
+    const m = this.i18n.attachments
+    const text = reason === 'too_many'
+      ? formatMessage(m.too_many, { max: MAX_ATTACHMENTS })
+      : reason === 'too_large'
+        ? formatMessage(m.too_large, { max: Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024)) })
+        : reason === 'unsupported'
+          ? m.unsupported
+          : ''
+    el.textContent = text
+    el.hidden = !text
+  }
+
+  /** Hand the attached files over for sending and clear the strip. */
+  private takeAttachments(): File[] {
+    const files = this.attachments.map(attachment => attachment.file)
+    this.releaseAttachments()
+    return files
+  }
+
+  private releaseAttachments(): void {
+    for (const attachment of this.attachments) URL.revokeObjectURL(attachment.url)
+    this.attachments = []
   }
 
   private selectCategory(value: string | null): void {
@@ -225,16 +417,20 @@ export class ChatPopup {
   }
 
   private syncSendEnabled(): void {
-    this.sendBtn.disabled = !this.composeMessage()
+    this.sendBtn.disabled = !this.composeMessage() || this.preparing > 0
   }
 
-  private async sendMessage(text: string): Promise<void> {
+  private async sendMessage(text: string, retryFiles?: File[]): Promise<void> {
     if (this.state === 'sending' || this.state === 'answering') return
 
     if (this.state === 'clarifying') {
       this.handleAnswer(text)
       return
     }
+
+    // An image still being downscaled would otherwise be silently left behind.
+    if (this.preparing > 0 && !retryFiles) return
+    const files = retryFiles ?? this.takeAttachments()
 
     this.state = 'sending'
     this.selectCategory(null)
@@ -246,7 +442,7 @@ export class ChatPopup {
 
     let session: SubmissionSessionResponse | null
     try {
-      session = await this.opts.onSubmit(text)
+      session = await this.opts.onSubmit(text, files)
     } catch {
       session = null
     }
@@ -258,7 +454,7 @@ export class ChatPopup {
       this.setComposerDisabled(false)
       this.showRetryableError(this.i18n.error.submit, () => {
         this.clearError()
-        void this.sendMessage(text)
+        void this.sendMessage(text, files)
       })
       this.state = 'idle'
       return
@@ -390,8 +586,12 @@ export class ChatPopup {
     this.attachHandoff()
   }
 
-  /** Keep a failed background finalize in the conversation the reporter used. */
-  showFinalizeFailure(onRetry?: () => void): void {
+  /**
+   * Keep a failed background finalize in the conversation the reporter used.
+   * `reason: 'uploads'` means the feedback is held but the reporter's own
+   * images did not all reach the server; Retry sends the missing ones again.
+   */
+  showFinalizeFailure(onRetry?: () => void, reason: FinalizeFailureReason = 'finalize'): void {
     this.clearAutoCloseTimer()
 
     let view = this.el.querySelector<HTMLDivElement>('.mtb-chat-success')
@@ -407,7 +607,7 @@ export class ChatPopup {
     view.innerHTML = `
       <div class="mtb-chat-success-icon mtb-chat-failure-icon">!</div>
       <div class="mtb-chat-success-title">${escapeHtml(this.i18n.error.finalize_title)}</div>
-      <div class="mtb-chat-finalize-message">${escapeHtml(this.i18n.error.finalize_message)}</div>
+      <div class="mtb-chat-finalize-message">${escapeHtml(reason === 'uploads' ? this.i18n.attachments.upload_failed : this.i18n.error.finalize_message)}</div>
       ${onRetry ? `<button class="mtb-chat-finalize-retry" type="button">${escapeHtml(this.i18n.clarify.retry)}</button>` : ''}
       <button class="mtb-chat-finalize-close" type="button">${escapeHtml(this.i18n.success.close)}</button>
     `
@@ -705,6 +905,10 @@ export class ChatPopup {
   private hideCapture(): void {
     this.actionsEl.querySelector('.mtb-chat-screenshot')?.remove()
     this.actionsEl.querySelector('.mtb-chat-attachment')?.remove()
+    this.actionsEl.querySelector('.mtb-chat-attach')?.remove()
+    this.actionsEl.querySelector('.mtb-chat-attach-input')?.remove()
+    this.composerEl.querySelector('.mtb-chat-thumbs')?.remove()
+    this.composerEl.querySelector('.mtb-chat-attach-error')?.remove()
   }
 
   private setComposerDisabled(disabled: boolean): void {
@@ -764,6 +968,7 @@ export class ChatPopup {
     this.destroyed = true
     this.clarifyAbort?.abort()
     this.clearAutoCloseTimer()
+    this.releaseAttachments()
     window.removeEventListener('keydown', this.handleEscape)
     this.sheet.release()
     this.focusTrap.release()

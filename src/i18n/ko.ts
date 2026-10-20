@@ -90,4 +90,13 @@ export default {
     error: '질문을 불러오지 못했습니다. 피드백을 그대로 보내세요.',
     expired: '이 피드백 세션은 전송되기 전에 만료되었습니다. 위젯을 닫고 다시 보내 주세요.',
   },
+  attachments: {
+    add: '이미지 첨부',
+    count: '{count}/{max}',
+    remove: '{name} 삭제',
+    too_many: '이미지는 최대 {max}장까지 첨부할 수 있어요',
+    too_large: '이미지는 장당 {max}MB 미만이어야 해요',
+    unsupported: 'PNG, JPEG, WebP, GIF만 지원해요',
+    upload_failed: '이미지를 업로드하지 못했어요. 다시 시도해 주세요.',
+  },
 }

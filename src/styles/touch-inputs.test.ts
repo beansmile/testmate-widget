@@ -40,8 +40,10 @@ describe('touch input font size', () => {
 
     for (const [path, source] of Object.entries(sources)) {
       if (path.includes('.test.')) continue
-      const tags = String(source).matchAll(/<(?:input|textarea)\b[^>]*class="([^"]+)"/g)
-      for (const [, classes] of tags) {
+      const tags = String(source).matchAll(/<(?:input|textarea)\b[^>]*class="([^"]+)"[^>]*>/g)
+      for (const [tag, classes] of tags) {
+        // A hidden file picker is never focused or typed into: no zoom to prevent.
+        if (/type="file"/.test(tag)) continue
         for (const cls of classes.split(/\s+/)) found.add(`.${cls}`)
       }
     }

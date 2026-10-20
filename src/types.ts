@@ -30,6 +30,12 @@ export interface TestMateConfig {
    */
   recorderUrl?: string
   frustrationDetection?: boolean
+  /**
+   * Show the paperclip in the note composer so reporters can attach up to five
+   * images of their own (a replacement asset, a photo of a device) alongside
+   * the automatic screenshot. Defaults to true; false hides the control.
+   */
+  uploads?: boolean
   tabText?: string
   brandColors?: WidgetBrandColors
   userToken?: string
@@ -139,6 +145,8 @@ export interface SubmissionSessionResponse {
   token: string
   ai_clarify_available: boolean
   board_url?: string
+  /** How many reporter images this session accepts. Absent on older servers; treat as 5. */
+  uploads_max?: number
 }
 
 export interface ClarifyMessage {

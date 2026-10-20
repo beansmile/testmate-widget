@@ -28,6 +28,45 @@ export class ApiError extends Error {
   }
 }
 
+export type UploadErrorCode =
+  | 'upload_too_large'
+  | 'too_many_uploads'
+  | 'unsupported_image_type'
+  | 'capture_policy_required'
+  | 'session_inactive'
+  | 'unknown'
+
+/**
+ * The server refused a reporter image for a reason sending the same bytes again
+ * cannot fix (413 too large, 422 rule violation, 404 session no longer active).
+ * Network failures and 5xx stay plain errors / ApiError: those are worth a retry.
+ */
+export class UploadRejectedError extends ApiError {
+  readonly code: UploadErrorCode
+  /** From a 413: the server's per-file ceiling. */
+  readonly maxBytes?: number
+
+  constructor(status: number, code: UploadErrorCode, maxBytes?: number) {
+    super(status)
+    this.name = 'UploadRejectedError'
+    this.code = code
+    this.maxBytes = maxBytes
+  }
+}
+
+export interface UploadedImage {
+  id: string
+  content_type: string
+  size: number
+}
+
+const UPLOAD_ERROR_CODES: ReadonlySet<string> = new Set([
+  'upload_too_large',
+  'too_many_uploads',
+  'unsupported_image_type',
+  'capture_policy_required',
+])
+
 export function isTerminalConflict(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409
 }
@@ -300,6 +339,43 @@ export class ApiClient {
     })
   }
 
+  /**
+   * One reporter-attached image (not the automatic screenshot). Same headers as
+   * the screenshot upload plus the capture policy the uploads endpoint insists
+   * on; the original filename rides in the multipart part so the dashboard can
+   * show what the reporter picked.
+   */
+  async uploadImage(
+    submissionSessionId: string,
+    token: string,
+    file: Blob,
+    signal?: AbortSignal,
+  ): Promise<UploadedImage> {
+    const headers = await this.submissionHeaders(token)
+    headers['X-MTB-Capture-Policy'] = CAPTURE_POLICY
+    const body = new FormData()
+    body.append('image', file, uploadFilename(file))
+    const res = await this.fetchResponseWithRetry(
+      `${this.apiUrl}/widget/feedback_submission_sessions/${submissionSessionId}/uploads`,
+      { method: 'POST', headers, body, signal },
+    )
+    if (res.ok) {
+      const json = await res.json() as { upload: UploadedImage }
+      return json.upload
+    }
+    if (res.status === 404) throw new UploadRejectedError(404, 'session_inactive')
+    if (res.status === 413 || res.status === 422) {
+      const error = await res.json().catch(() => null) as { error?: { code?: unknown; max_bytes?: unknown } } | null
+      const rawCode = error?.error?.code
+      const code: UploadErrorCode = typeof rawCode === 'string' && UPLOAD_ERROR_CODES.has(rawCode)
+        ? rawCode as UploadErrorCode
+        : res.status === 413 ? 'upload_too_large' : 'unknown'
+      const maxBytes = typeof error?.error?.max_bytes === 'number' ? error.error.max_bytes : undefined
+      throw new UploadRejectedError(res.status, code, maxBytes)
+    }
+    throw new ApiError(res.status)
+  }
+
   async abandonSubmissionSession(submissionSessionId: string, token: string): Promise<void> {
     const headers = await this.submissionHeaders(token)
     await this.fetchWithRetry(`${this.apiUrl}/widget/feedback_submission_sessions/${submissionSessionId}`, {
@@ -309,6 +385,14 @@ export class ApiClient {
   }
 
   private async fetchWithRetry(url: string, init: RequestInit, retries = 1): Promise<Response> {
+    const res = await this.fetchResponseWithRetry(url, init, retries)
+    if (res.ok) return res
+    throw new ApiError(res.status)
+  }
+
+  // The retry policy without the status check: network errors and 5xx are
+  // retried, anything else comes back as-is so a caller can read an error body.
+  private async fetchResponseWithRetry(url: string, init: RequestInit, retries = 1): Promise<Response> {
     let res: Response
     try {
       res = await fetch(url, init)
@@ -317,17 +401,16 @@ export class ApiClient {
       // caller wait out the retry delay for a second guaranteed abort.
       if (retries > 0 && !init.signal?.aborted) {
         await delay(this.retryDelayMs)
-        return this.fetchWithRetry(url, init, retries - 1)
+        return this.fetchResponseWithRetry(url, init, retries - 1)
       }
       throw err
     }
 
-    if (res.ok) return res
     if (res.status >= 500 && retries > 0) {
       await delay(this.retryDelayMs)
-      return this.fetchWithRetry(url, init, retries - 1)
+      return this.fetchResponseWithRetry(url, init, retries - 1)
     }
-    throw new ApiError(res.status)
+    return res
   }
 }
 
@@ -385,6 +468,19 @@ async function consumeSse(
   if (!result) throw new Error('clarify stream ended before done')
 
   return result
+}
+
+const UPLOAD_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+function uploadFilename(file: Blob): string {
+  const name = typeof File !== 'undefined' && file instanceof File ? file.name.trim() : ''
+  if (name) return name
+  return `image.${UPLOAD_EXTENSIONS[file.type] ?? 'bin'}`
 }
 
 function generateIdempotencyKey(): string {

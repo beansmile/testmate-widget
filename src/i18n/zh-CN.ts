@@ -90,4 +90,13 @@ export default {
     error: '追问加载失败，可以直接发送反馈。',
     expired: '这条反馈在发送前已过期。请关闭组件后重新提交。',
   },
+  attachments: {
+    add: '添加图片',
+    count: '{count}/{max}',
+    remove: '移除 {name}',
+    too_many: '最多 {max} 张图片',
+    too_large: '每张图片需小于 {max} MB',
+    unsupported: '仅支持 PNG、JPEG、WebP 或 GIF',
+    upload_failed: '图片上传失败，请重试。',
+  },
 }

@@ -90,4 +90,13 @@ export default {
     error: 'Die Frage konnte nicht geladen werden. Senden Sie Ihr Feedback einfach so.',
     expired: 'Diese Feedback-Sitzung ist abgelaufen, bevor sie gesendet werden konnte. Bitte schließe das Widget und sende erneut.',
   },
+  attachments: {
+    add: 'Bilder anhängen',
+    count: '{count}/{max}',
+    remove: '{name} entfernen',
+    too_many: 'Höchstens {max} Bilder',
+    too_large: 'Jedes Bild muss kleiner als {max} MB sein',
+    unsupported: 'Nur PNG, JPEG, WebP oder GIF',
+    upload_failed: 'Ihre Bilder konnten nicht hochgeladen werden. Bitte versuchen Sie es erneut.',
+  },
 }

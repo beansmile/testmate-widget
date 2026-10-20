@@ -90,4 +90,13 @@ export default {
     error: "Couldn't load the question. Send your feedback as is.",
     expired: 'This feedback session expired before it could be sent. Please close the widget and submit again.',
   },
+  attachments: {
+    add: 'Attach images',
+    count: '{count}/{max}',
+    remove: 'Remove {name}',
+    too_many: 'Up to {max} images',
+    too_large: 'Each image must be under {max} MB',
+    unsupported: 'Only PNG, JPEG, WebP or GIF',
+    upload_failed: "Couldn't upload your images. Try again.",
+  },
 }

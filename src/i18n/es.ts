@@ -90,4 +90,13 @@ export default {
     error: 'No se pudo cargar la pregunta. Envía tus comentarios tal cual.',
     expired: 'Esta sesión de comentarios caducó antes de poder enviarse. Cierra el widget y envíalo de nuevo.',
   },
+  attachments: {
+    add: 'Adjuntar imágenes',
+    count: '{count}/{max}',
+    remove: 'Quitar {name}',
+    too_many: 'Hasta {max} imágenes',
+    too_large: 'Cada imagen debe pesar menos de {max} MB',
+    unsupported: 'Solo PNG, JPEG, WebP o GIF',
+    upload_failed: 'No se pudieron subir tus imágenes. Inténtalo de nuevo.',
+  },
 }

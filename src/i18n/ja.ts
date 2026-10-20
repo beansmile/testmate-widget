@@ -90,4 +90,13 @@ export default {
     error: '質問を読み込めませんでした。そのままフィードバックを送信できます。',
     expired: 'このフィードバックは送信される前に有効期限が切れました。ウィジェットを閉じて、もう一度送信してください。',
   },
+  attachments: {
+    add: '画像を添付',
+    count: '{count}/{max}',
+    remove: '{name} を削除',
+    too_many: '画像は {max} 枚までです',
+    too_large: '画像は 1 枚 {max} MB 未満にしてください',
+    unsupported: 'PNG、JPEG、WebP、GIF のみ対応しています',
+    upload_failed: '画像をアップロードできませんでした。もう一度お試しください。',
+  },
 }
