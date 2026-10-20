@@ -54,7 +54,7 @@ export interface ScrollOffset {
 
 /**
  * The capture region: the visual viewport, and nothing else. html-to-image
- * renders document.body shifted by the page scroll so the on-screen region
+ * renders the document element shifted by the page scroll so the on-screen region
  * lands at the canvas origin — which makes this rect both the capture request
  * and the deliverable. There is no crop step: cropping a clone-space bitmap
  * was only ever needed when the capture was the whole document.
