@@ -117,11 +117,11 @@ export async function captureBaseScreenshot(
     // enough (a hundred-odd requests) for late-arriving fonts to reflow the
     // page, and a cover measured before that shift lands on the wrong pixels
     // with no fail-closed signal.
-    const bodyRect = document.body.getBoundingClientRect()
+    const frame = captureFrame()
     const metrics = viewportCaptureRect()
     const pageScroll = { x: window.scrollX, y: window.scrollY }
     const redactions = collectPrivacyRedactions(document.body)
-    const dataUrl = await toJpeg(document.body, {
+    const dataUrl = await toJpeg(frame.node, {
       quality: 0.85,
       imagePlaceholder: TRANSPARENT_IMAGE_PLACEHOLDER,
       resourceUrlResolver,
@@ -129,19 +129,16 @@ export async function captureBaseScreenshot(
       width: metrics.width,
       height: metrics.height,
       pixelRatio: capturePixelRatio(metrics),
-      backgroundColor: '#ffffff',
+      backgroundColor: frame.backgroundColor,
       skipFonts: false,
       skipAutoScale: false,
       fontEmbedCSS,
-      style: {
-        // The clone lays out from the document top; shifting it by the body's
-        // current viewport offset puts the scrolled-to region at the canvas
-        // origin, so live viewport measurements map onto the bitmap 1:1.
-        transform: `translate(${bodyRect.left}px, ${bodyRect.top}px)`,
-        transformOrigin: 'top left',
-      },
+      style: frame.style,
       filter: (node) => {
         if (node instanceof HTMLElement && node.id === WIDGET_HOST_ID) return false
+        // Computed styles are inlined into every clone, so the head's
+        // stylesheets and scripts carry no pixels — only payload.
+        if (node === document.head) return false
         if (!(node instanceof Element)) return true
         const rect = node.getBoundingClientRect()
         // Zero-sized nodes carry no pixels but often carry styles or heads of
@@ -160,6 +157,69 @@ export async function captureBaseScreenshot(
   } catch {
     return null
   }
+}
+
+interface CaptureFrame {
+  node: HTMLElement
+  /** Inline overrides html-to-image applies to the cloned root. */
+  style: Partial<CSSStyleDeclaration>
+  backgroundColor: string
+}
+
+/**
+ * What to rasterize, and how to place it so the live viewport lands on the
+ * canvas 1:1.
+ *
+ * The root is the document element, not the body. html-to-image inlines every
+ * computed style into its clone — margins included, already resolved to pixels
+ * — and renders the clone at the canvas origin. Capturing the body therefore
+ * applied the body's margin twice: once from its own (cloned) margin, once from
+ * a translate by its viewport rect that already contained that margin. On a
+ * centered max-width body that doubled `margin: auto` pushed everything
+ * hundreds of pixels right of where the reporter saw it, and baked pins (drawn
+ * at viewport coordinates) no longer sat on their targets. The body was also
+ * stretched to the forced capture width, reflowing a full-width page.
+ *
+ * The document element is laid out at the viewport origin, so its rect is just
+ * the page scroll. Its own margin is zeroed in the clone and the rect alone
+ * positions it; the body keeps its cloned pixel margins inside it, exactly as
+ * the browser placed it. flow-root keeps the body's top margin from collapsing
+ * through the clone root (the real root never collapses with its children), and
+ * overflow stays visible so a page that scrolls the root (`overflow-y: scroll`)
+ * does not turn the viewport-sized clone into a clipping scroller.
+ */
+function captureFrame(): CaptureFrame {
+  const root = document.documentElement
+  const rootRect = root.getBoundingClientRect()
+  return {
+    node: root,
+    style: {
+      margin: '0',
+      display: 'flow-root',
+      overflow: 'visible',
+      transform: `translate(${rootRect.left}px, ${rootRect.top}px)`,
+      transformOrigin: 'top left',
+    },
+    backgroundColor: canvasBackgroundColor(),
+  }
+}
+
+// html-to-image paints its backgroundColor onto the cloned root, replacing the
+// root's own. Use what the browser paints behind the page: the root's
+// background, or the body's when the root has none (CSS propagates the body's
+// background to the canvas then), else white.
+function canvasBackgroundColor(): string {
+  for (const element of [document.documentElement, document.body]) {
+    if (!element) continue
+    const color = getComputedStyle(element).backgroundColor
+    if (color && !isTransparentColor(color)) return color
+  }
+  return '#ffffff'
+}
+
+function isTransparentColor(color: string): boolean {
+  const normalized = color.replace(/\s+/g, '').toLowerCase()
+  return normalized === 'transparent' || /^rgba\(\d+,\d+,\d+,0(\.0+)?\)$/.test(normalized)
 }
 
 export async function bakeAnnotatedScreenshot(

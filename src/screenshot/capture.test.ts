@@ -58,7 +58,7 @@ describe('captureScreenshot', () => {
     expect(blob).toBeInstanceOf(Blob)
     expect(blob?.type).toBe('image/jpeg')
     expect(toJpegMock).toHaveBeenCalledWith(
-      document.body,
+      document.documentElement,
       expect.objectContaining({
         quality: 0.85,
         pixelRatio: 1,
@@ -79,7 +79,7 @@ describe('captureScreenshot', () => {
 
     expect(blob).toBeInstanceOf(Blob)
     expect(toJpegMock).toHaveBeenCalledWith(
-      document.body,
+      document.documentElement,
       expect.objectContaining({
         imagePlaceholder: expect.stringMatching(/^data:image\/gif;base64,/),
       }),
@@ -133,18 +133,120 @@ describe('captureScreenshot', () => {
   })
 
   it('shifts the clone so the scrolled-to region lands at the canvas origin', async () => {
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, -2000, 900, 2800))
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, -2000, 900, 2800))
 
     await captureScreenshot()
 
     expect(toJpegMock).toHaveBeenCalledWith(
-      document.body,
+      document.documentElement,
       expect.objectContaining({
         width: window.innerWidth,
         height: window.innerHeight,
         style: expect.objectContaining({ transform: 'translate(0px, -2000px)' }),
       }),
     )
+  })
+
+  // html-to-image inlines every computed style into its clone, margins
+  // included. Capturing the body and then translating it by its own viewport
+  // rect applied the body's margin twice: on a 1280px viewport a centered
+  // 720px body (264px auto margins) rendered at x=544 instead of x=280, and
+  // pins baked at viewport coordinates missed their targets by the same amount.
+  describe('on a host page whose body is offset by its margins', () => {
+    function layOut(root: DOMRect, body: DOMRect): void {
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(720)
+      vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(root)
+      vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(body)
+    }
+
+    function captureOptions() {
+      return toJpegMock.mock.calls[0][1] as {
+        style?: Record<string, string>
+        filter: (node: Node) => boolean
+        backgroundColor?: string
+      }
+    }
+
+    it.each([
+      ['a centered max-width body', rect(0, 0, 1280, 720), rect(264, 40, 752, 400)],
+      ['a plain full-width body', rect(0, 0, 1280, 720), rect(8, 8, 1264, 400)],
+      ['a body pushed right by margin-left', rect(0, 0, 1280, 720), rect(200, 0, 1080, 400)],
+    ])('captures the document element unshifted for %s', async (_name, root, body) => {
+      layOut(root, body)
+
+      await captureScreenshot()
+
+      // The clone root is the document element, which sits at the viewport
+      // origin; the body keeps its own cloned margins inside it, so the body's
+      // offset must never reach the transform.
+      expect(toJpegMock.mock.calls[0][0]).toBe(document.documentElement)
+      expect(captureOptions().style).toMatchObject({
+        transform: 'translate(0px, 0px)',
+        transformOrigin: 'top left',
+        margin: '0',
+        display: 'flow-root',
+        overflow: 'visible',
+      })
+    })
+
+    it('translates by the root rect only, so a scrolled page still maps 1:1', async () => {
+      layOut(rect(0, -600, 1280, 3000), rect(264, -560, 752, 2900))
+      vi.stubGlobal('Image', ViewportImage)
+      const context = mockCanvasContext()
+      vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
+        context as unknown as CanvasRenderingContext2D,
+      )
+
+      // A pin on an element at viewport (380, 180) — inside the centered body.
+      await captureScreenshot([{ type: 'pin', x: 380, y: 180 }])
+
+      expect(captureOptions().style?.['transform']).toBe('translate(0px, -600px)')
+      // The bitmap is the viewport, so the baked pin stays at the viewport
+      // coordinates the element occupies — not shifted by the body margin.
+      expect(context.arc).toHaveBeenCalledWith(380, 180, 11, 0, Math.PI * 2)
+    })
+
+    it('leaves the head out of the clone', async () => {
+      layOut(rect(0, 0, 1280, 720), rect(264, 40, 752, 400))
+
+      await captureScreenshot()
+
+      expect(captureOptions().filter(document.head)).toBe(false)
+      expect(captureOptions().filter(document.body)).toBe(true)
+    })
+
+    describe('background', () => {
+      afterEach(() => {
+        document.documentElement.style.backgroundColor = ''
+        document.body.style.backgroundColor = ''
+      })
+
+      it('paints the root background behind the page', async () => {
+        document.documentElement.style.backgroundColor = 'rgb(17, 24, 39)'
+        document.body.style.backgroundColor = 'rgb(255, 0, 0)'
+
+        await captureScreenshot()
+
+        expect(captureOptions().backgroundColor).toBe('rgb(17, 24, 39)')
+      })
+
+      it('falls back to the body background the browser propagates to the canvas', async () => {
+        document.body.style.backgroundColor = 'rgb(17, 24, 39)'
+
+        await captureScreenshot()
+
+        expect(captureOptions().backgroundColor).toBe('rgb(17, 24, 39)')
+      })
+
+      it('uses white when neither paints a background', async () => {
+        document.body.style.backgroundColor = 'rgba(0, 0, 0, 0)'
+
+        await captureScreenshot()
+
+        expect(captureOptions().backgroundColor).toBe('#ffffff')
+      })
+    })
   })
 
   it('does not mount anything into the live page while capturing', async () => {
@@ -219,7 +321,7 @@ describe('captureScreenshot', () => {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
     vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
     vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
     const blocked = document.createElement('section')
     blocked.className = 'rr-block'
     vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
@@ -239,7 +341,7 @@ describe('captureScreenshot', () => {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
     vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
     vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
     const masked = document.createElement('section')
     masked.className = 'rr-mask'
     vi.spyOn(masked, 'getBoundingClientRect').mockReturnValue(rect(30, 40, 600, 240))
@@ -270,7 +372,7 @@ describe('captureScreenshot', () => {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
     vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
     vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
 
     const password = document.createElement('input')
     password.type = 'password'
@@ -311,7 +413,7 @@ describe('captureScreenshot', () => {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
     vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
     vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, -1200, 1280, 3000))
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, -1200, 1280, 3000))
     const blocked = document.createElement('section')
     blocked.className = 'rr-block'
     vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
@@ -351,7 +453,7 @@ describe('captureScreenshot', () => {
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
     vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
     vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
     const blocked = document.createElement('section')
     blocked.className = 'rr-block'
     const blockedRect = vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
@@ -407,7 +509,7 @@ describe('captureScreenshot', () => {
     vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(720)
-    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue({
       x: 0,
       y: -1200,
       top: -1200,
@@ -457,7 +559,7 @@ describe('captureScreenshot', () => {
       vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(720)
       vi.spyOn(window, 'scrollX', 'get').mockReturnValue(0)
       vi.spyOn(window, 'scrollY', 'get').mockReturnValue(scrollY)
-      vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, -scrollY, 1280, 3000))
+      vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, -scrollY, 1280, 3000))
       vi.stubGlobal('Image', ViewportImage)
 
       return { sourceContext, exportedCanvasSizes }
@@ -539,7 +641,7 @@ describe('captureScreenshot', () => {
       })
       vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
       vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(720)
-      vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue({
+      vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue({
         x: 0,
         y: 0,
         top: 0,
@@ -661,7 +763,7 @@ describe('captureScreenshot', () => {
       vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(1080)
       vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1920)
       vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1080)
-      vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1920, 1080))
+      vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1920, 1080))
       vi.stubGlobal('Image', DesktopViewportImage)
 
       document.body.innerHTML = '<main id="scroller"><input id="target"></main>'
