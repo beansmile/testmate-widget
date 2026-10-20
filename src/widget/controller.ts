@@ -366,8 +366,9 @@ export class WidgetController implements ModeHost {
       onUndo: () => this.handleDrawUndoRedo('undo'),
       onRedo: () => this.handleDrawUndoRedo('redo'),
       onCancel: () => this.cancelDraw(),
-      onSubmit: (note) => this.handleDrawSubmit(note),
+      onSubmit: (note, files) => this.handleDrawSubmit(note, files),
       onActivity: () => this.lifecycle.beginBaseCapture(),
+      attachments: this.config.uploads !== false,
     })
     // Strokes are baked onto the screenshot, so this surface offers no opt-out
     // and must undo one made earlier in the session.
@@ -397,7 +398,11 @@ export class WidgetController implements ModeHost {
       y: window.innerHeight / 2,
       messages: this.messages,
       position: this.config.position ?? 'right',
-      onSubmit: async (description: string) => {
+      // On a phone this sheet is the only composer a reporter reaches — a tap
+      // is inert on touch, so there is no pin flow — which makes it where a
+      // photo of the device or a replacement image has to be attached.
+      attachments: this.config.uploads !== false,
+      onSubmit: async (description: string, files: File[]) => {
         const annotation = this.session?.getDrawAnnotation()
         if (!annotation) {
           this.cancelDraw()
@@ -413,6 +418,7 @@ export class WidgetController implements ModeHost {
           description || this.messages.annotation.drawing,
           annotation,
           recording,
+          files,
         )
         if (session?.board_url) cacheBoardUrl(session.board_url)
         return session
@@ -466,7 +472,7 @@ export class WidgetController implements ModeHost {
     this.drawBar = null
   }
 
-  private handleDrawSubmit(note: string): void {
+  private handleDrawSubmit(note: string, files: File[] = []): void {
     const annotation = this.session?.getDrawAnnotation()
     if (!annotation) {
       this.cancelDraw()
@@ -483,10 +489,21 @@ export class WidgetController implements ModeHost {
     this.dim?.destroy()
     this.dim = null
 
-    this.mountChatAfterSubmit(description, annotation, recording)
+    this.mountChatAfterSubmit(description, annotation, recording, files)
   }
 
-  private mountChatAfterSubmit(description: string, annotation: Annotation | null, recording: import('./recording-manager').RecordingResult | undefined): void {
+  /**
+   * The desktop draw bar's follow-up card. The bar has already collected the
+   * note (and any images picked from its paperclip), so this card sends them
+   * straight away and only carries the conversation; it has no attach step of
+   * its own. A retry from this card re-sends the same files.
+   */
+  private mountChatAfterSubmit(
+    description: string,
+    annotation: Annotation | null,
+    recording: import('./recording-manager').RecordingResult | undefined,
+    files: File[] = [],
+  ): void {
     this.dim = new DimOverlay(this.shadow, () => this.exitAll())
     this.engageScrollLock()
 
@@ -497,7 +514,7 @@ export class WidgetController implements ModeHost {
       messages: this.messages,
       position: this.config.position ?? 'right',
       onSubmit: async () => {
-        const session = await this.lifecycle.start(description, annotation, recording)
+        const session = await this.lifecycle.start(description, annotation, recording, files)
         if (session?.board_url) cacheBoardUrl(session.board_url)
         return session
       },
@@ -540,8 +557,6 @@ export class WidgetController implements ModeHost {
       targetRect,
       messages: this.messages,
       position: this.config.position ?? 'right',
-      // The note composer is the one surface with a step for picking images;
-      // the draw flow submits straight from its bar and stays without them.
       attachments: this.config.uploads !== false,
       onSubmit: async (description: string, files: File[]) => {
         this.currentAnnotation = annotation ?? this.currentAnnotation
