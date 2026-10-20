@@ -93,13 +93,13 @@ describe('DrawNoteBar', () => {
     const input = shadow.root.querySelector<HTMLInputElement>('.mtb-draw-input')!
     input.value = '  fix this  '
     shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-submit')!.click()
-    expect(handlers.onSubmit).toHaveBeenCalledWith('fix this')
+    expect(handlers.onSubmit).toHaveBeenCalledWith('fix this', [])
   })
 
   it('submits an empty string when the note is blank', () => {
     const handlers = setup()
     shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-submit')!.click()
-    expect(handlers.onSubmit).toHaveBeenCalledWith('')
+    expect(handlers.onSubmit).toHaveBeenCalledWith('', [])
   })
 
   it('Enter submits the note text', () => {
@@ -107,7 +107,63 @@ describe('DrawNoteBar', () => {
     const input = shadow.root.querySelector<HTMLInputElement>('.mtb-draw-input')!
     input.value = 'broken export'
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
-    expect(handlers.onSubmit).toHaveBeenCalledWith('broken export')
+    expect(handlers.onSubmit).toHaveBeenCalledWith('broken export', [])
+  })
+
+  describe('attached images', () => {
+    const png = (name: string) => new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+
+    function setupWithAttachments() {
+      shadow = new ShadowContainer()
+      const handlers = { onUndo: vi.fn(), onRedo: vi.fn(), onCancel: vi.fn(), onSubmit: vi.fn() }
+      bar = new DrawNoteBar(shadow, { messages: getMessages('en'), attachments: true, ...handlers })
+      return handlers
+    }
+
+    function pick(files: File[]): void {
+      const input = shadow.root.querySelector<HTMLInputElement>('.mtb-draw-attach-input')!
+      Object.defineProperty(input, 'files', { value: files, configurable: true })
+      input.dispatchEvent(new Event('change'))
+    }
+
+    it('has no paperclip unless asked for', () => {
+      setup()
+      expect(shadow.root.querySelector('.mtb-draw-attach')).toBeNull()
+    })
+
+    it('passes picked images through to submit and shows their count', async () => {
+      const handlers = setupWithAttachments()
+      pick([png('hero.png'), png('logo.png')])
+      const chip = shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-attach-count')!
+      await vi.waitFor(() => expect(chip.hidden).toBe(false))
+      expect(chip.textContent).toContain('2/5')
+
+      shadow.root.querySelector<HTMLInputElement>('.mtb-draw-input')!.value = 'use these'
+      shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-submit')!.click()
+      const [note, files] = handlers.onSubmit.mock.calls[0] as [string, File[]]
+      expect(note).toBe('use these')
+      expect(files.map(f => f.name)).toEqual(['hero.png', 'logo.png'])
+    })
+
+    it('clears every image from the count chip', async () => {
+      const handlers = setupWithAttachments()
+      pick([png('hero.png')])
+      const chip = shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-attach-count')!
+      await vi.waitFor(() => expect(chip.hidden).toBe(false))
+      chip.click()
+      expect(chip.hidden).toBe(true)
+      shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-submit')!.click()
+      expect(handlers.onSubmit).toHaveBeenCalledWith('', [])
+    })
+
+    it('caps the set at five and says so', async () => {
+      setupWithAttachments()
+      pick(['a', 'b', 'c', 'd', 'e', 'f'].map(n => png(`${n}.png`)))
+      const error = shadow.root.querySelector<HTMLSpanElement>('.mtb-draw-attach-error')!
+      await vi.waitFor(() => expect(error.hidden).toBe(false))
+      expect(error.textContent).toBe('Up to 5 images')
+      expect(shadow.root.querySelector<HTMLButtonElement>('.mtb-draw-attach')!.disabled).toBe(true)
+    })
   })
 
   // This bar was unreachable on a phone until freehand drawing started

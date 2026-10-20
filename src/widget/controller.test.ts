@@ -2671,13 +2671,88 @@ describe('reporter-attached images', () => {
     expect(host().querySelector('.mtb-chat-attach')).toBeNull()
   })
 
-  it('keeps the touch draw sheet without a paperclip', () => {
+  // A tap is inert on touch, so a phone never reaches the pin composer: the
+  // draw sheet is the only place a reporter there can attach a photo.
+  it('uploads images attached in the touch draw sheet after the Session and before finalize', async () => {
     setPointerCoarse(true)
+    const calls: string[] = []
+    const uploadBodies: FormData[] = []
+    let description: unknown
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const href = String(url)
+      if (init?.method !== 'DELETE') {
+        calls.push(href.replace('https://api.example.com/api/v1/widget/feedback_submission_sessions', '') || '/create')
+      }
+      if (href.endsWith('/uploads')) {
+        uploadBodies.push(init?.body as FormData)
+        return new Response(JSON.stringify({ upload: { id: `up_${uploadBodies.length}`, content_type: 'image/png', size: 4 } }), { status: 201 })
+      }
+      if (!href.includes('/submission_1')) description ??= (init?.body as FormData | undefined)?.get?.('feedback[description]')
+      return sessionFlowResponse(url, init, { id: 'FB-1', status: 'received', project_id: 'acme' })
+    })
+
     MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    const shadow = host()
+    MakeThisBetter.open()
+    performDrawStroke(shadow.querySelector<HTMLDivElement>('.mtb-overlay')!)
+    await vi.waitFor(() => expect(shadow.querySelector('.mtb-chat')).not.toBeNull())
+    expect(shadow.querySelector('.mtb-draw-bar')).toBeNull()
+    expect(shadow.querySelector('.mtb-chat-attach')).not.toBeNull()
+
+    await attach(shadow, [png('device.png'), png('replacement.png')])
+    typeAndSubmit(shadow, 'This is what it looks like on my phone')
+
+    await awaitSubmissionSuccess(shadow)
+    await vi.waitFor(() => expect(calls).toContain('/submission_1/feedback'))
+    // The drawing's screenshot rides its own request; it can land anywhere
+    // after create, so only the order of create → uploads → finalize is held.
+    const flow = calls.filter(call => call !== '/submission_1/screenshot')
+    expect(flow).toEqual(['/create', '/submission_1/uploads', '/submission_1/uploads', '/submission_1/feedback'])
+    expect(uploadBodies.map(body => (body.get('image') as File).name)).toEqual(['device.png', 'replacement.png'])
+    expect(description).toBe('This is what it looks like on my phone')
+  })
+
+  it('hides the touch draw sheet\'s paperclip with uploads: false', () => {
+    setPointerCoarse(true)
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1', uploads: false })
     MakeThisBetter.open()
     performDrawStroke(host().querySelector<HTMLDivElement>('.mtb-overlay')!)
     expect(host().querySelector('.mtb-chat')).not.toBeNull()
     expect(host().querySelector('.mtb-chat-attach')).toBeNull()
+  })
+
+  it('uploads images picked in the desktop draw bar with the drawing', async () => {
+    const calls: string[] = []
+    const uploadBodies: FormData[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const href = String(url)
+      if (init?.method !== 'DELETE') {
+        calls.push(href.replace('https://api.example.com/api/v1/widget/feedback_submission_sessions', '') || '/create')
+      }
+      if (href.endsWith('/uploads')) {
+        uploadBodies.push(init?.body as FormData)
+        return new Response(JSON.stringify({ upload: { id: `up_${uploadBodies.length}`, content_type: 'image/png', size: 4 } }), { status: 201 })
+      }
+      return sessionFlowResponse(url, init, { id: 'FB-1', status: 'received', project_id: 'acme' })
+    })
+
+    MakeThisBetter.init({ projectKey: 'acme', apiUrl: 'https://api.example.com/api/v1' })
+    const shadow = host()
+    shadow.querySelector<HTMLButtonElement>('.mtb-tab')!.click()
+    performDrawStroke(shadow.querySelector<HTMLDivElement>('.mtb-overlay')!)
+    await vi.waitFor(() => expect(shadow.querySelector('.mtb-draw-bar')).not.toBeNull())
+
+    const picker = shadow.querySelector<HTMLInputElement>('.mtb-draw-attach-input')!
+    Object.defineProperty(picker, 'files', { value: [png('hero.png')], configurable: true })
+    picker.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(shadow.querySelector<HTMLButtonElement>('.mtb-draw-attach-count')!.hidden).toBe(false))
+    shadow.querySelector<HTMLInputElement>('.mtb-draw-input')!.value = 'Swap this'
+    shadow.querySelector<HTMLButtonElement>('.mtb-draw-submit')!.click()
+
+    await vi.waitFor(() => expect(calls).toContain('/submission_1/feedback'), { timeout: 5000 })
+    const flow = calls.filter(call => call !== '/submission_1/screenshot')
+    expect(flow).toEqual(['/create', '/submission_1/uploads', '/submission_1/feedback'])
+    expect(uploadBodies.map(body => (body.get('image') as File).name)).toEqual(['hero.png'])
   })
 
   it('holds the feedback on an upload failure and sends it after Retry', async () => {
