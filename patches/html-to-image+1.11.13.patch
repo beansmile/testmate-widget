@@ -1,5 +1,19 @@
+diff --git a/node_modules/html-to-image/es/clone-node.js b/node_modules/html-to-image/es/clone-node.js
+index 114cbf2..882267e 100644
+--- a/node_modules/html-to-image/es/clone-node.js
++++ b/node_modules/html-to-image/es/clone-node.js
+@@ -179,6 +179,7 @@ export async function cloneNode(node, options, isRoot) {
+         .then((clonedNode) => cloneSingleNode(clonedNode, options))
+         .then((clonedNode) => cloneChildren(node, clonedNode, options))
+         .then((clonedNode) => decorate(node, clonedNode, options))
+-        .then((clonedNode) => ensureSVGSymbols(clonedNode, options));
++        .then((clonedNode) => ensureSVGSymbols(clonedNode, options))
++        .then((clonedNode) => (options.onClone ? options.onClone(node, clonedNode) || clonedNode : clonedNode));
+ }
+ //# sourceMappingURL=clone-node.js.map
+\ No newline at end of file
 diff --git a/node_modules/html-to-image/es/dataurl.js b/node_modules/html-to-image/es/dataurl.js
-index 174e4b9..2c66a09 100644
+index 174e4b9..4617389 100644
 --- a/node_modules/html-to-image/es/dataurl.js
 +++ b/node_modules/html-to-image/es/dataurl.js
 @@ -9,8 +9,8 @@ export function makeDataUrl(content, mimeType) {
@@ -39,20 +53,40 @@ index 174e4b9..2c66a09 100644
      }
      catch (error) {
 diff --git a/node_modules/html-to-image/es/types.d.ts b/node_modules/html-to-image/es/types.d.ts
-index a832baf..a05c3c3 100644
+index a832baf..928df3a 100644
 --- a/node_modules/html-to-image/es/types.d.ts
 +++ b/node_modules/html-to-image/es/types.d.ts
-@@ -56,6 +56,8 @@ export interface Options {
+@@ -56,6 +56,14 @@ export interface Options {
       * areas for failed images.
       */
      imagePlaceholder?: string;
++    /**
++     * Called for every node (elements and text) once it has been cloned,
++     * its children cloned and its computed style inlined. Return a node to
++     * put in the clone tree in place of `clonedNode`.
++     */
++    onClone?: (nativeNode: Node, clonedNode: Node) => Node | void;
 +    /** Resolve a resource URL after its direct fetch fails. */
 +    resourceUrlResolver?: (resourceUrl: string, contentType?: string) => string | undefined | Promise<string | undefined>;
      /**
       * The pixel ratio of captured image. Defalut is the actual pixel ratio of
       * the device. Set 1 to use as initial-scale 1 for the image
+diff --git a/node_modules/html-to-image/lib/clone-node.js b/node_modules/html-to-image/lib/clone-node.js
+index 214f4d3..c64c468 100644
+--- a/node_modules/html-to-image/lib/clone-node.js
++++ b/node_modules/html-to-image/lib/clone-node.js
+@@ -281,7 +281,8 @@ function cloneNode(node, options, isRoot) {
+                     .then(function (clonedNode) { return cloneSingleNode(clonedNode, options); })
+                     .then(function (clonedNode) { return cloneChildren(node, clonedNode, options); })
+                     .then(function (clonedNode) { return decorate(node, clonedNode, options); })
+-                    .then(function (clonedNode) { return ensureSVGSymbols(clonedNode, options); })];
++                    .then(function (clonedNode) { return ensureSVGSymbols(clonedNode, options); })
++                    .then(function (clonedNode) { return options.onClone ? options.onClone(node, clonedNode) || clonedNode : clonedNode; })];
+         });
+     });
+ }
 diff --git a/node_modules/html-to-image/lib/dataurl.js b/node_modules/html-to-image/lib/dataurl.js
-index d0b4141..7d15e88 100644
+index d0b4141..ac48213 100644
 --- a/node_modules/html-to-image/lib/dataurl.js
 +++ b/node_modules/html-to-image/lib/dataurl.js
 @@ -56,8 +56,8 @@ function fetchAsDataURL(url, init, process) {
@@ -144,13 +178,19 @@ index d0b4141..7d15e88 100644
                      return [2 /*return*/, dataURL];
              }
 diff --git a/node_modules/html-to-image/lib/types.d.ts b/node_modules/html-to-image/lib/types.d.ts
-index a832baf..a05c3c3 100644
+index a832baf..928df3a 100644
 --- a/node_modules/html-to-image/lib/types.d.ts
 +++ b/node_modules/html-to-image/lib/types.d.ts
-@@ -56,6 +56,8 @@ export interface Options {
+@@ -56,6 +56,14 @@ export interface Options {
       * areas for failed images.
       */
      imagePlaceholder?: string;
++    /**
++     * Called for every node (elements and text) once it has been cloned,
++     * its children cloned and its computed style inlined. Return a node to
++     * put in the clone tree in place of `clonedNode`.
++     */
++    onClone?: (nativeNode: Node, clonedNode: Node) => Node | void;
 +    /** Resolve a resource URL after its direct fetch fails. */
 +    resourceUrlResolver?: (resourceUrl: string, contentType?: string) => string | undefined | Promise<string | undefined>;
      /**
@@ -171,7 +211,8 @@ index 13bc8b4..9f25187 100644
    }
    const blob = await res.blob()
    return new Promise<T>((resolve, reject) => {
-@@ -82,16 +82,26 @@ export async function resourceToDataURL(
+@@ -81,17 +81,27 @@ export async function resourceToDataURL(
+ 
    let dataURL: string
    try {
 -    const content = await fetchAsDataURL(

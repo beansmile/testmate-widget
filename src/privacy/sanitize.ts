@@ -10,7 +10,13 @@ const API_KEY_PATTERNS = [
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g,
 ]
 const CARD_CANDIDATE_PATTERN = /\b(?:\d[ -]?){12,18}\d\b/g
-const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+/gi
+// Only characters a URL can be made of (RFC 3986 unreserved, reserved and
+// percent-encoding), so a URL quoted inside prose stops where the prose resumes.
+// The previous pattern ran to the next whitespace, which in CJK text — written
+// without spaces — swallowed the rest of the sentence: "https://example.com/…；
+// 小组件只会在此域名上运行" parsed as one URL whose path was percent-encoded,
+// the text no longer round-tripped, and plain help copy was masked as a secret.
+const HTTP_URL_PATTERN = /\bhttps?:\/\/[A-Za-z0-9\-._~:/?#\[\]@!$&()*+,;=%]+/g
 const FIELD_SEMANTIC_KEYS = new Set(['type', 'autocomplete', 'name', 'id', 'aria_label', 'placeholder'])
 const VALUE_ATTRIBUTE_KEYS = new Set(['value', 'content'])
 const SENSITIVE_INPUT_TYPES = new Set(['password', 'hidden', 'file'])
@@ -39,7 +45,25 @@ export function filterSensitiveText(value: string): string {
     passesLuhn(candidate) ? FILTERED_VALUE : candidate
   ))
 
-  return filtered.replace(HTTP_URL_PATTERN, candidate => sanitizeUrl(candidate) || FILTERED_VALUE)
+  return filtered.replace(HTTP_URL_PATTERN, redactUrl)
+}
+
+// A bare URL is not a secret: only its query, fragment and embedded credentials
+// can carry one. Those parts are dropped; a URL without them is returned
+// verbatim so that the text still round-trips and nothing treats it as
+// sensitive. An unparseable URL fails closed to the filtered marker.
+function redactUrl(candidate: string): string {
+  // Punctuation that closes the sentence or bracket around a URL is part of
+  // the prose, not the URL — it is set aside and put back after the redaction.
+  const trailing = /[.,;:!?)\]]+$/.exec(candidate)?.[0] ?? ''
+  let url: URL
+  try {
+    url = new URL(candidate.slice(0, candidate.length - trailing.length))
+  } catch {
+    return FILTERED_VALUE
+  }
+  if (!url.search && !url.hash && !url.username && !url.password) return candidate
+  return `${url.origin}${url.pathname}${trailing}`
 }
 
 export function sanitizeUrl(value: string): string {

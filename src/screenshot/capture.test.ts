@@ -10,6 +10,49 @@ vi.mock('html-to-image', () => ({
 }))
 
 const toJpegMock = vi.mocked(toJpeg)
+const JPEG_DATA_URL = 'data:image/jpeg;base64,/9j/AA=='
+const MASK_GRAY = /^(#e5e7eb|rgb\(229, 231, 235\))$/i
+
+// What html-to-image hands the capture back through its (patched) onClone
+// hook: the clone tree built the way clone-node.js builds it — filter first,
+// shallow clone, children, the input value copied in, then the hook with the
+// finished clone. The privacy tests read the masks off this tree.
+interface CloneOptions {
+  filter?: (node: HTMLElement) => boolean
+  onClone?: (nativeNode: Node, clonedNode: Node) => Node | void
+}
+
+function cloneLikeHtmlToImage(node: Node, options: CloneOptions): Node {
+  const walk = (native: Node, isRoot: boolean): Node | null => {
+    if (!isRoot && options.filter && !options.filter(native as HTMLElement)) return null
+    const clone = native.cloneNode(false)
+    for (const child of Array.from(native.childNodes)) {
+      const cloned = walk(child, false)
+      if (cloned) clone.appendChild(cloned)
+    }
+    if (native instanceof HTMLInputElement) (clone as HTMLInputElement).setAttribute('value', native.value)
+    if (native instanceof HTMLTextAreaElement) (clone as HTMLTextAreaElement).innerHTML = native.value
+    return options.onClone ? options.onClone(native, clone) ?? clone : clone
+  }
+  return walk(node, true)!
+}
+
+let lastClone: Node | null = null
+
+function clonedElement<T extends Element = HTMLElement>(selector: string): T {
+  const element = (lastClone as Element | null)?.querySelector<T>(selector)
+  if (!element) throw new Error(`No ${selector} in the screenshot clone`)
+  return element
+}
+
+function clonedTextNodes(): string[] {
+  const walker = document.createTreeWalker(lastClone!, NodeFilter.SHOW_TEXT)
+  const texts: string[] = []
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!node.parentElement?.hasAttribute('data-mtb-mask')) texts.push(node.textContent ?? '')
+  }
+  return texts
+}
 
 class ImmediatelyFailingImage {
   onload: (() => void) | null = null
@@ -21,6 +64,11 @@ class ImmediatelyFailingImage {
 
 describe('captureScreenshot', () => {
   beforeEach(() => {
+    lastClone = null
+    toJpegMock.mockImplementation(async (node, options) => {
+      lastClone = cloneLikeHtmlToImage(node, options as CloneOptions)
+      return JPEG_DATA_URL
+    })
     vi.stubGlobal('Image', ImmediatelyLoadingImage)
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
       () => mockCanvasContext() as unknown as CanvasRenderingContext2D,
@@ -184,7 +232,7 @@ describe('captureScreenshot', () => {
   })
 
   describe('screenshotAnnotationOffsets', () => {
-    const base = { dataUrl: 'data:image/jpeg;base64,/9j/AA==', metrics: rect(0, 0, 1280, 720), redactions: [], pageScroll: { x: 0, y: 200 } }
+    const base = { dataUrl: 'data:image/jpeg;base64,/9j/AA==', metrics: rect(0, 0, 1280, 720), pageScroll: { x: 0, y: 200 } }
 
     it('is the anchor brought back to the frame the capture was measured in', () => {
       expect(screenshotAnnotationOffsets(base, [
@@ -390,192 +438,180 @@ describe('captureScreenshot', () => {
     expect(blob).toBeNull()
   })
 
-  it('covers an rr-block region before exporting the screenshot', async () => {
-    const context = mockCanvasContext()
-    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
-    const blocked = document.createElement('section')
-    blocked.className = 'rr-block'
-    vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
-    document.body.appendChild(blocked)
+  // Privacy masks are part of html-to-image's clone, never painted onto the
+  // bitmap: a cover painted at a live rect lands beside the secret whenever
+  // the clone lays out differently from the page (FB-16: a centered column
+  // rendered flush-left, the gray box 480px to the right of readable text).
+  describe('privacy masks', () => {
+    function sizeViewport(): ReturnType<typeof mockCanvasContext> {
+      const context = mockCanvasContext()
+      vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
+        context as unknown as CanvasRenderingContext2D,
+      )
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
+      vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
+      vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
+      vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
+      return context
+    }
 
-    await captureScreenshot()
+    it('masks an rr-block element inside the clone and paints nothing onto the bitmap', async () => {
+      const context = sizeViewport()
+      const blocked = document.createElement('section')
+      blocked.className = 'rr-block'
+      blocked.innerHTML = '<p>Account 4242</p><img src="https://cdn.example.com/private.png">'
+      vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
+      document.body.appendChild(blocked)
 
-    expect(context.fillRect).toHaveBeenCalledWith(25, 40, 320, 180)
-  })
+      const blob = await captureScreenshot()
 
-  it('covers text and form controls inside rr-mask without covering the whole region', async () => {
-    const context = mockCanvasContext()
-    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
-    const masked = document.createElement('section')
-    masked.className = 'rr-mask'
-    vi.spyOn(masked, 'getBoundingClientRect').mockReturnValue(rect(30, 40, 600, 240))
-    masked.appendChild(document.createTextNode('Visible account secret'))
-    const input = document.createElement('input')
-    input.value = 'ordinary form value'
-    vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(40, 90, 200, 32))
-    masked.appendChild(input)
-    document.body.appendChild(masked)
-    vi.spyOn(document, 'createRange').mockReturnValue({
-      selectNodeContents: vi.fn(),
-      getClientRects: () => [rect(35, 52, 90, 18)],
-    } as unknown as Range)
+      expect(blob).toBeInstanceOf(Blob)
+      const clone = clonedElement('section.rr-block')
+      expect(clone.getAttribute('data-mtb-mask')).toBe('block')
+      expect(clone.style.getPropertyValue('background-color')).toMatch(MASK_GRAY)
+      expect(clone.style.getPropertyPriority('background-color')).toBe('important')
+      expect(clone.style.getPropertyValue('color')).toBe('transparent')
+      // Every descendant is hidden on its own: html-to-image inlines
+      // `visibility: visible` on each of them, so hiding the block alone would
+      // not do.
+      expect(clone.querySelector('p')!.style.getPropertyValue('visibility')).toBe('hidden')
+      expect(clone.querySelector('img')!.getAttribute('src')).toMatch(/^data:image\/gif;base64,/)
+      expect(context.fillRect).not.toHaveBeenCalled()
+      // The live page is never touched.
+      expect(blocked.hasAttribute('data-mtb-mask')).toBe(false)
+      expect(blocked.querySelector('img')!.getAttribute('src')).toBe('https://cdn.example.com/private.png')
+    })
 
-    await captureScreenshot()
+    it('masks text and form controls inside rr-mask while leaving the region itself alone', async () => {
+      sizeViewport()
+      const masked = document.createElement('section')
+      masked.className = 'rr-mask'
+      masked.appendChild(document.createTextNode('Visible account secret'))
+      const input = document.createElement('input')
+      input.value = 'ordinary form value'
+      masked.appendChild(input)
+      document.body.appendChild(masked)
 
-    expect(context.fillRect).toHaveBeenCalledWith(33, 50, 94, 22)
-    expect(context.fillRect).toHaveBeenCalledWith(38, 88, 204, 36)
-    expect(context.fillRect).not.toHaveBeenCalledWith(30, 40, 600, 240)
-  })
+      await captureScreenshot()
 
-  it('covers built-in sensitive fields and high-confidence secrets in page content', async () => {
-    const context = mockCanvasContext()
-    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
+      expect(clonedElement('section.rr-mask').hasAttribute('data-mtb-mask')).toBe(false)
+      const span = clonedElement('section.rr-mask > span[data-mtb-mask="text"]')
+      expect(span.textContent).toBe('Visible account secret')
+      expect(span.style.getPropertyValue('color')).toBe('transparent')
+      expect(span.style.getPropertyValue('background-color')).toMatch(MASK_GRAY)
+      const field = clonedElement<HTMLInputElement>('section.rr-mask > input')
+      expect(field.getAttribute('data-mtb-mask')).toBe('field')
+      expect(field.hasAttribute('value')).toBe(false)
+      expect(field.value).toBe('')
+      expect(field.style.getPropertyValue('background-color')).toMatch(MASK_GRAY)
+      // Live DOM untouched: the text node is still a bare child, the value kept.
+      expect(masked.firstChild?.nodeType).toBe(Node.TEXT_NODE)
+      expect(input.value).toBe('ordinary form value')
+    })
 
-    const password = document.createElement('input')
-    password.type = 'password'
-    password.value = 'hunter2'
-    vi.spyOn(password, 'getBoundingClientRect').mockReturnValue(rect(10, 20, 180, 32))
-    const card = document.createElement('input')
-    card.name = 'notes'
-    card.value = '4242 4242 4242 4242'
-    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue(rect(10, 70, 240, 32))
-    const ordinary = document.createElement('input')
-    ordinary.name = 'notes'
-    ordinary.value = 'export is slow'
-    vi.spyOn(ordinary, 'getBoundingClientRect').mockReturnValue(rect(10, 120, 240, 32))
-    const secretText = document.createTextNode('Key sk-proj-abcdefghijklmnopqrstuvwxyz123456')
-    const ordinaryText = document.createTextNode('Order 1234 is delayed')
-    document.body.append(password, card, ordinary, secretText, ordinaryText)
+    it('masks built-in sensitive fields and high-confidence secrets, not ordinary content', async () => {
+      sizeViewport()
+      const password = document.createElement('input')
+      password.type = 'password'
+      password.value = 'hunter2'
+      const card = document.createElement('input')
+      card.name = 'notes'
+      card.value = '4242 4242 4242 4242'
+      const ordinary = document.createElement('input')
+      ordinary.name = 'notes'
+      ordinary.value = 'export is slow'
+      const secretText = document.createTextNode('Key sk-proj-abcdefghijklmnopqrstuvwxyz123456')
+      const ordinaryText = document.createTextNode('Order 1234 is delayed')
+      document.body.append(password, card, ordinary, secretText, ordinaryText)
 
-    let selectedNode: Node | null = null
-    vi.spyOn(document, 'createRange').mockReturnValue({
-      selectNodeContents: (node: Node) => { selectedNode = node },
-      getClientRects: () => selectedNode === secretText ? [rect(300, 200, 280, 18)] : [],
-    } as unknown as Range)
+      await captureScreenshot()
 
-    await captureScreenshot()
+      expect(clonedElement('input[type="password"]').getAttribute('data-mtb-mask')).toBe('field')
+      const [clonedCard, clonedOrdinary] = Array.from((lastClone as Element).querySelectorAll('input[name="notes"]'))
+      expect(clonedCard.getAttribute('data-mtb-mask')).toBe('field')
+      expect(clonedCard.hasAttribute('value')).toBe(false)
+      expect(clonedOrdinary.hasAttribute('data-mtb-mask')).toBe(false)
+      expect(clonedOrdinary.getAttribute('value')).toBe('export is slow')
+      expect(clonedElement('span[data-mtb-mask="text"]').textContent).toBe('Key sk-proj-abcdefghijklmnopqrstuvwxyz123456')
+      expect(clonedTextNodes()).toContain('Order 1234 is delayed')
+    })
 
-    expect(context.fillRect).toHaveBeenCalledWith(8, 18, 184, 36)
-    expect(context.fillRect).toHaveBeenCalledWith(8, 68, 244, 36)
-    expect(context.fillRect).toHaveBeenCalledWith(298, 198, 284, 22)
-    expect(context.fillRect).not.toHaveBeenCalledWith(8, 118, 244, 36)
-  })
+    // FB-16: settings help text quoting an example URL was masked as a secret
+    // because the URL pattern ran into the Chinese sentence after it.
+    it('leaves help text that quotes an example URL readable, but masks a URL carrying a token', async () => {
+      sizeViewport()
+      const help = document.createElement('p')
+      help.textContent = 'example.com 或 https://example.com/…；小组件只会在此域名上运行'
+      const reset = document.createElement('p')
+      reset.textContent = 'Reset at https://app.example.com/reset?token=abc123 before Friday'
+      document.body.append(help, reset)
 
-  it('covers privacy regions at viewport coordinates when the page is scrolled', async () => {
-    const context = mockCanvasContext()
-    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, -1200, 1280, 3000))
-    const blocked = document.createElement('section')
-    blocked.className = 'rr-block'
-    vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
-    const password = document.createElement('input')
-    password.type = 'password'
-    password.value = 'hunter2'
-    vi.spyOn(password, 'getBoundingClientRect').mockReturnValue(rect(10, 300, 180, 32))
-    document.body.append(blocked, password)
+      await captureScreenshot()
 
-    await captureScreenshot()
+      expect(clonedTextNodes()).toContain('example.com 或 https://example.com/…；小组件只会在此域名上运行')
+      expect(clonedElement('span[data-mtb-mask="text"]').textContent).toBe('Reset at https://app.example.com/reset?token=abc123 before Friday')
+    })
 
-    // The capture is the viewport itself, shifted into place by the clone's
-    // transform — so a cover measured from the live viewport rect is already in
-    // capture coordinates. Adding the page scroll back (the full-page mapping)
-    // would push every cover 1200px past the secret it must hide.
-    const options = toJpegMock.mock.calls[0][1] as { style?: Record<string, string> }
-    expect(options.style?.['transform']).toBe('translate(0px, -1200px)')
-    expect(context.fillRect).toHaveBeenCalledWith(25, 40, 320, 180)
-    expect(context.fillRect).toHaveBeenCalledWith(8, 298, 184, 36)
-    expect(context.fillRect).not.toHaveBeenCalledWith(25, 1240, 320, 180)
-  })
+    it('leaves text inside style and script elements alone', async () => {
+      sizeViewport()
+      const style = document.createElement('style')
+      style.textContent = '.hero { background: url(https://cdn.example.com/a.png?v=2) }'
+      document.body.appendChild(style)
 
-  it('measures privacy covers after the font warm-up so a layout shift during it cannot misplace them', async () => {
-    vi.resetModules()
-    const htmlToImage = await import('html-to-image')
-    let resolveFontWarmUp!: (css: string) => void
-    vi.mocked(htmlToImage.getFontEmbedCSS).mockReturnValue(
-      new Promise(resolve => { resolveFontWarmUp = resolve }),
-    )
-    const { captureScreenshot: freshCaptureScreenshot } = await import('./capture')
+      await captureScreenshot()
 
-    const context = mockCanvasContext()
-    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
-    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.body, 'clientWidth', 'get').mockReturnValue(1280)
-    vi.spyOn(document.body, 'clientHeight', 'get').mockReturnValue(3000)
-    vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1280, 3000))
-    const blocked = document.createElement('section')
-    blocked.className = 'rr-block'
-    const blockedRect = vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
-    document.body.appendChild(blocked)
+      expect(clonedElement('style').childNodes).toHaveLength(1)
+      expect(clonedElement('style').textContent).toBe('.hero { background: url(https://cdn.example.com/a.png?v=2) }')
+    })
 
-    const capture = freshCaptureScreenshot()
-    // Late-arriving fonts reflow the page while the warm-up is in flight; a
-    // cover measured before that shift exports the secret uncovered.
-    blockedRect.mockReturnValue(rect(25, 640, 320, 180))
-    resolveFontWarmUp('')
-    await capture
+    it('masks inside the clone wherever the page is scrolled, with nothing painted at viewport coordinates', async () => {
+      const context = sizeViewport()
+      vi.spyOn(document.documentElement, 'getBoundingClientRect').mockReturnValue(rect(0, -1200, 1280, 3000))
+      const blocked = document.createElement('section')
+      blocked.className = 'rr-block'
+      vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
+      const password = document.createElement('input')
+      password.type = 'password'
+      password.value = 'hunter2'
+      vi.spyOn(password, 'getBoundingClientRect').mockReturnValue(rect(10, 300, 180, 32))
+      document.body.append(blocked, password)
 
-    expect(context.fillRect).toHaveBeenCalledWith(25, 640, 320, 180)
-    expect(context.fillRect).not.toHaveBeenCalledWith(25, 40, 320, 180)
-  })
+      await captureScreenshot()
 
-  it('returns null when drawing a privacy cover fails', async () => {
-    const context = mockCanvasContext()
-    context.fillRect.mockImplementation(() => { throw new Error('canvas failed') })
-    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(
-      context as unknown as CanvasRenderingContext2D,
-    )
-    const blocked = document.createElement('section')
-    blocked.className = 'rr-block'
-    vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(25, 40, 320, 180))
-    document.body.appendChild(blocked)
+      const options = toJpegMock.mock.calls[0][1] as { style?: Record<string, string> }
+      expect(options.style?.['transform']).toBe('translate(0px, -1200px)')
+      expect(clonedElement('section.rr-block').getAttribute('data-mtb-mask')).toBe('block')
+      expect(clonedElement('input[type="password"]').getAttribute('data-mtb-mask')).toBe('field')
+      expect(context.fillRect).not.toHaveBeenCalled()
+    })
 
-    await expect(captureScreenshot()).resolves.toBeNull()
-  })
+    // The hook is a local patch of html-to-image. A build without it renders
+    // every secret in the clear, and that bitmap must never leave the page.
+    it('returns null when the clone hook never ran and there was something to mask', async () => {
+      sizeViewport()
+      toJpegMock.mockImplementationOnce(async () => JPEG_DATA_URL)
+      const blocked = document.createElement('section')
+      blocked.className = 'rr-block'
+      document.body.appendChild(blocked)
 
-  it('returns null when a privacy region has invalid geometry', async () => {
-    const blocked = document.createElement('section')
-    blocked.className = 'rr-block'
-    vi.spyOn(blocked, 'getBoundingClientRect').mockReturnValue(rect(Number.NaN, 40, 320, 180))
-    document.body.appendChild(blocked)
+      await expect(captureScreenshot()).resolves.toBeNull()
+    })
 
-    await expect(captureScreenshot()).resolves.toBeNull()
+    it('still captures without the hook when the page has nothing to mask', async () => {
+      sizeViewport()
+      toJpegMock.mockImplementationOnce(async () => JPEG_DATA_URL)
+      document.body.appendChild(document.createTextNode('Order 1234 is delayed'))
+
+      await expect(captureScreenshot()).resolves.toBeInstanceOf(Blob)
+    })
   })
 
   // No captureOffset on the annotation — the shape every client sent before
   // 1.22, and what replayed data still looks like. The capture-time path has to
   // keep working for it, so this and the two unanchored cases in the nested
   // scroller below are the backward-compatibility guard.
-  it('maps unanchored annotations and redactions 1:1 onto the scrolled viewport capture', async () => {
+  it('maps unanchored annotations 1:1 onto the scrolled viewport capture', async () => {
     const sourceContext = mockCanvasContext()
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
       () => sourceContext as unknown as CanvasRenderingContext2D,
@@ -610,7 +646,8 @@ describe('captureScreenshot', () => {
     // scroll translation — the clone was shifted instead.
     const options = toJpegMock.mock.calls[0][1] as { style?: Record<string, string> }
     expect(options.style?.['transform']).toBe('translate(0px, -1200px)')
-    expect(sourceContext.fillRect).toHaveBeenCalledWith(100, 200, 300, 120)
+    expect(clonedElement('section.rr-block').getAttribute('data-mtb-mask')).toBe('block')
+    expect(sourceContext.fillRect).not.toHaveBeenCalled()
     expect(sourceContext.arc).toHaveBeenCalledWith(640, 360, 11, 0, Math.PI * 2)
   })
 
@@ -798,7 +835,9 @@ describe('captureScreenshot', () => {
       expect(sourceContext.lineTo).toHaveBeenCalledWith(640, 570)
     })
 
-    it('covers rr-block regions, sensitive fields, and secret text at the clone coordinates', async () => {
+    // A scrolled container is where a painted cover used to need its own
+    // scroll arithmetic; a mask inside the clone has nothing to compensate.
+    it('masks rr-block regions, sensitive fields, and secret text inside a scrolled container', async () => {
       const { sourceContext } = prepareCapture()
       const scroller = document.querySelector<HTMLElement>('#scroller')!
       const blocked = document.createElement('section')
@@ -810,22 +849,14 @@ describe('captureScreenshot', () => {
       vi.spyOn(password, 'getBoundingClientRect').mockReturnValue(rect(500, 330, 200, 40))
       const secretText = document.createTextNode('Key sk-proj-abcdefghijklmnopqrstuvwxyz123456')
       scroller.append(blocked, password, secretText)
-      let selectedNode: Node | null = null
-      vi.spyOn(document, 'createRange').mockReturnValue({
-        selectNodeContents: (node: Node) => { selectedNode = node },
-        getClientRects: () => selectedNode === secretText ? [rect(300, 250, 280, 18)] : [],
-      } as unknown as Range)
 
       await captureScreenshot()
 
-      // The clone renders the scroller's children 180px lower than the live
-      // viewport rects report; a cover at the raw rect would leave the secret
-      // fully visible in the export.
-      expect(sourceContext.fillRect).toHaveBeenCalledWith(100, 380, 300, 120)
-      expect(sourceContext.fillRect).toHaveBeenCalledWith(498, 508, 204, 44)
-      expect(sourceContext.fillRect).toHaveBeenCalledWith(298, 428, 284, 22)
-      expect(sourceContext.fillRect).not.toHaveBeenCalledWith(100, 200, 300, 120)
-      expect(sourceContext.fillRect).not.toHaveBeenCalledWith(498, 328, 204, 44)
+      expect(clonedElement('#scroller > section.rr-block').getAttribute('data-mtb-mask')).toBe('block')
+      expect(clonedElement('#scroller > input[type="password"]').getAttribute('data-mtb-mask')).toBe('field')
+      expect(clonedElement('#scroller > span[data-mtb-mask="text"]').textContent).toBe('Key sk-proj-abcdefghijklmnopqrstuvwxyz123456')
+      expect(sourceContext.fillRect).not.toHaveBeenCalled()
+      expect(scroller.lastChild).toBe(secretText)
     })
 
     it('exports the whole viewport bitmap even when the scrolled annotation falls outside it', async () => {
