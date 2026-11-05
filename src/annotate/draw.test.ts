@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect } from 'vitest'
 import { ShadowContainer } from '../widget/shadow'
 import { DrawLayer } from './draw'
+import { filterSensitiveValue } from '../privacy/sanitize'
 
 const SVG_SEL = 'svg[class="mtb-draw-svg"]'
 
@@ -105,6 +106,19 @@ describe('DrawLayer', () => {
       expect(annotation.drawPath).toContain('L 10 10')
       expect(annotation.x).toBe(5)
       expect(annotation.y).toBe(5)
+    })
+
+    // Pointer coordinates carry long float tails. Sent as-is, a Luhn-valid
+    // digit run in them was replaced by the payload's card filter, and the
+    // board received "L 410.[Filtered]…" (found in the FB-17 browser QA).
+    it('writes the path at 1/100 px so the payload filter cannot mistake it for a card number', () => {
+      setup()
+      const raw = 'M 413.39714991328583 229.1438185005271'
+      expect(filterSensitiveValue({ drawPath: raw }).drawPath).toContain('[Filtered]')
+      stroke([[413.39714991328583, 229.1438185005271], [408.65380859375, 227.0472869873047]])
+      const { drawPath } = draw.getAnnotation()!
+      expect(drawPath).toBe('M 413.4 229.14 L 408.65 227.05')
+      expect(filterSensitiveValue({ drawPath }).drawPath).toBe(drawPath)
     })
 
     it('returns false when not drawing', () => {

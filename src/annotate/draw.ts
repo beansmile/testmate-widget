@@ -193,13 +193,23 @@ export class DrawLayer {
   }
 }
 
+// Coordinates go into the path at 1/100 px. Pointer events report long float
+// tails ("221.10830688476562"), and the payload's card-number filter treats
+// any 13+ digit run as a candidate: roughly one in ten passes Luhn, so the
+// wire path came out as "410.[Filtered].146…" and the board could not draw it.
+// Two decimals cap a digit run at about seven ("95 22111"), well under that,
+// and lose nothing visible.
+function coord(v: number): number {
+  return Math.round(v * 100) / 100
+}
+
 function buildPathD(points: Point[]): string {
   if (points.length === 0) return ''
   const [fx, fy] = points[0]
-  let d = `M ${fx} ${fy}`
+  let d = `M ${coord(fx)} ${coord(fy)}`
   for (let i = 1; i < points.length; i++) {
     const [x, y] = points[i]
-    d += ` L ${x} ${y}`
+    d += ` L ${coord(x)} ${coord(y)}`
   }
   return d
 }
