@@ -79,15 +79,26 @@ export function anchorScreenshotOffset(
 }
 
 // How far a viewport measurement has to move to reach clone space: every
-// scroller between the element and the body has pushed its content out of view
+// scroller between the element and the page has pushed its content out of view
 // by its own scrollLeft/scrollTop, and html-to-image renders it back.
+//
+// "The page" is the document's scrolling element — the one whose scroll is
+// window.scrollX/Y, which the capture frame compensates on its own. That is
+// the document element in standards mode and the body in quirks mode. The
+// body is NOT the page when the host turns it into its own scroller (the
+// common app-shell `html { overflow: hidden } body { overflow: auto }`): then
+// window.scrollY stays 0 while body.scrollTop moves the content, and the clone
+// renders the body unscrolled like any other container. Stopping the walk at
+// the body used to drop exactly that scroll, so every mark and privacy cover on
+// such a page landed body.scrollTop away from what it was measured on.
 export function nestedScrollOffset(target: Element | null): ScrollOffset {
   let x = 0
   let y = 0
   let current = target
+  const page = document.scrollingElement ?? document.documentElement
 
-  while (current && current !== document.body) {
-    if (current instanceof HTMLElement) {
+  while (current && current !== document.documentElement) {
+    if (current instanceof HTMLElement && current !== page) {
       x += current.scrollLeft
       y += current.scrollTop
     }
@@ -109,8 +120,8 @@ export function parentElement(element: Element): Element | null {
  * included — the anchor an annotation records so that later scrolling cannot
  * move it.
  *
- * nestedScrollOffset stops at the body because the capture's own metrics carry
- * the page scroll for anything measured at capture time. An annotation is not
+ * nestedScrollOffset leaves the page scroll out because the capture's own
+ * metrics carry it for anything measured at capture time. An annotation is not
  * measured at capture time, so it has to carry that half itself.
  */
 export function captureAnchorOffset(target: Element | null): ScrollOffset {

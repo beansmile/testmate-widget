@@ -326,11 +326,19 @@ export class ApiClient {
     token: string,
     screenshot: Blob,
     signal?: AbortSignal,
+    annotationOffsets?: readonly { x: number; y: number }[],
   ): Promise<void> {
     const headers = await this.submissionHeaders(token)
     delete (headers as Record<string, string>)['Content-Type']
     const body = new FormData()
     body.append('screenshot', screenshot, 'screenshot.jpg')
+    // One {x, y} per submitted annotation, in order: how far each was moved to
+    // be baked into this bitmap. The server stores them on the annotations as
+    // screenshotOffsetX/Y so the board's overlay lands on the baked mark; a
+    // server that predates the field ignores it.
+    if (annotationOffsets && annotationOffsets.length > 0) {
+      body.append('annotation_offsets', JSON.stringify(annotationOffsets))
+    }
     await this.fetchWithRetry(`${this.apiUrl}/widget/feedback_submission_sessions/${submissionSessionId}/screenshot`, {
       method: 'PUT',
       headers,
