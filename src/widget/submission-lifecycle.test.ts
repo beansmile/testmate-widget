@@ -473,7 +473,7 @@ describe('SubmissionLifecycle reporter images', () => {
   // capture's page scroll, so the offsets the bake used travel with the image.
   // Bake and upload must get the same values, or overlay and baked mark split.
   it('uploads the offsets the bake used alongside the screenshot', async () => {
-    const base = { dataUrl: 'data:image/jpeg;base64,', metrics: { left: 0, top: 0, width: 1280, height: 720 }, redactions: [], pageScroll: { x: 0, y: 200 } }
+    const base = { dataUrl: 'data:image/jpeg;base64,', metrics: { left: 0, top: 0, width: 1280, height: 720 }, pageScroll: { x: 0, y: 200 } }
     const offsets = [{ x: 0, y: 48 }]
     const blob = new Blob(['jpeg'], { type: 'image/jpeg' })
     vi.mocked(captureBaseScreenshot).mockResolvedValue(base)

@@ -1,11 +1,8 @@
 import type { Annotation, WidgetBrandColors } from '../types'
-import { BLOCK_CLASS, MASK_TEXT_CLASS } from '../privacy/dom'
 import { WIDGET_HOST_ID } from '../context/dom-utils'
-import { filterInputValue, isSensitiveField } from '../privacy/fields'
-import { filterSensitiveText } from '../privacy/sanitize'
-import { createSensitiveTextContext, hasSensitiveTextContext } from '../privacy/text-context'
 import { BRAND_COLOR } from '../styles'
-import { anchorScreenshotOffset, captureTransform, nestedScrollOffset, parentElement, rectToCanvas, toCanvasX, toCanvasY, viewportCaptureRect } from './geometry'
+import { collectPrivacyMasks, maskClonedNode } from './clone-mask'
+import { anchorScreenshotOffset, captureTransform, nestedScrollOffset, toCanvasX, toCanvasY, viewportCaptureRect } from './geometry'
 import type { CaptureTransform, Rect, ScrollOffset } from './geometry'
 import { loadImage } from './image'
 import { parsePathPolylines, translatePathD } from './svg-path'
@@ -22,7 +19,6 @@ import { parsePathPolylines, translatePathD } from './svg-path'
 export interface BaseScreenshot {
   dataUrl: string
   metrics: Rect
-  redactions: Rect[]
   /**
    * Where the page was scrolled when the bitmap was measured. The bake happens
    * later — the reporter is still typing — so it cannot read this itself, and
@@ -120,7 +116,8 @@ export async function captureBaseScreenshot(
     const frame = captureFrame()
     const metrics = viewportCaptureRect()
     const pageScroll = { x: window.scrollX, y: window.scrollY }
-    const redactions = collectPrivacyRedactions(document.body)
+    const masks = collectPrivacyMasks(document.body)
+    let rootCloned = false
     const dataUrl = await toJpeg(frame.node, {
       quality: 0.85,
       imagePlaceholder: TRANSPARENT_IMAGE_PLACEHOLDER,
@@ -153,9 +150,19 @@ export async function captureBaseScreenshot(
         if (topInCapture <= cutoff) return true
         return cullingMovesVisibleContent(node, cutoff, pageScroll.y)
       },
+      // Privacy masks live in the clone itself (see clone-mask.ts), so they
+      // sit on their content however the clone lays out.
+      onClone: (nativeNode, clonedNode) => {
+        if (nativeNode === frame.node) rootCloned = true
+        return maskClonedNode(masks, nativeNode, clonedNode)
+      },
     })
     if (signal?.aborted) return null
-    return { dataUrl, metrics, redactions, pageScroll }
+    // The hook is a local patch of html-to-image (patches/). An unpatched
+    // build never calls it, and a bitmap rendered without it has every secret
+    // in the clear — fail closed rather than upload that.
+    if (masks.size > 0 && !rootCloned) throw new Error('Privacy masks were not applied to the screenshot clone')
+    return { dataUrl, metrics, pageScroll }
   } catch {
     return null
   }
@@ -286,7 +293,7 @@ export async function bakeAnnotatedScreenshot(
     const screenshotAnnotations = annotations.map(
       (annotation, i) => translateAnnotationForScreenshot(annotation, offsets[i] ?? { x: 0, y: 0 }),
     )
-    return await bakeScreenshot(base.dataUrl, screenshotAnnotations, base.metrics, base.redactions, brandColors)
+    return await bakeScreenshot(base.dataUrl, screenshotAnnotations, base.metrics, brandColors)
   } catch {
     return null
   }
@@ -370,7 +377,6 @@ async function bakeScreenshot(
   dataUrl: string,
   annotations: Annotation[],
   captureMetrics: Rect,
-  redactions: Rect[],
   brandColors?: WidgetBrandColors,
 ): Promise<Blob | null> {
   const canvas = document.createElement('canvas')
@@ -384,12 +390,6 @@ async function bakeScreenshot(
   canvas.height = image.naturalHeight || window.innerHeight
   ctx.drawImage(image, 0, 0)
   const transform = captureTransform(captureMetrics, canvas.width, canvas.height)
-
-  ctx.fillStyle = '#e5e7eb'
-  for (const rect of redactions) {
-    const cover = rectToCanvas(transform, rect)
-    ctx.fillRect(cover.left, cover.top, cover.width, cover.height)
-  }
 
   for (const annotation of annotations) {
     if (annotation.type === 'draw' && annotation.drawPath) {
@@ -409,89 +409,6 @@ async function bakeScreenshot(
   // and cropping content above the visible band was the bug class that shifted
   // the remaining content up and blanked the shot.
   return canvasToJpegBlob(canvas)
-}
-
-function collectPrivacyRedactions(root: HTMLElement): Rect[] {
-  const redactions: Rect[] = []
-  for (const element of elementsIncludingRoot(root, `.${BLOCK_CLASS}`)) {
-    addRedaction(redactions, element.getBoundingClientRect(), cloneScrollOffset(element))
-  }
-
-  for (const element of root.querySelectorAll('input, textarea, select')) {
-    if (isWidgetOrBlocked(element)) continue
-    const value = element instanceof HTMLInputElement
-      || element instanceof HTMLTextAreaElement
-      || element instanceof HTMLSelectElement
-      ? element.value
-      : ''
-    const isMasked = element.closest(`.${MASK_TEXT_CLASS}`) !== null
-    const hasSensitiveValue = isSensitiveField(element) || filterInputValue(value, element) !== value
-    if (!isMasked && !hasSensitiveValue) continue
-    addRedaction(redactions, element.getBoundingClientRect(), cloneScrollOffset(element), REDACTION_PADDING_PX)
-  }
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  const textContext = createSensitiveTextContext()
-  let node = walker.nextNode()
-  while (node) {
-    const parent = node.parentElement
-    const text = node.textContent ?? ''
-    const isMasked = parent?.closest(`.${MASK_TEXT_CLASS}`) !== null
-    const hasSensitiveText = filterSensitiveText(text) !== text || hasSensitiveTextContext(node, textContext)
-    if (parent && !isWidgetOrBlocked(parent) && (isMasked || hasSensitiveText)) {
-      // Text is the parent's content, so the parent's own scrollTop moves it
-      // too — start the offset walk at the parent itself, not its ancestors.
-      const offset = nestedScrollOffset(parent)
-      const range = document.createRange()
-      range.selectNodeContents(node)
-      for (const rect of Array.from(range.getClientRects())) {
-        addRedaction(redactions, rect, offset, REDACTION_PADDING_PX)
-      }
-    }
-    node = walker.nextNode()
-  }
-
-  return redactions
-}
-
-// html-to-image clones a scroller's children back at their unscrolled
-// positions, so a cover measured from the live viewport rect of an element
-// inside a scrolled container would land away from the secret in the export
-// and leave it visible — the same drift the annotation path compensates in
-// translateAnnotationForScreenshot. A border box moves with ancestor scroll
-// only (an element's own scrollTop shifts its content, not its box), so the
-// walk starts at the parent; page scroll stays out because nestedScrollOffset
-// skips the document's scrolling element, whose offset captureMetrics already
-// carries.
-function cloneScrollOffset(element: Element): { x: number; y: number } {
-  return nestedScrollOffset(parentElement(element))
-}
-
-function elementsIncludingRoot(root: HTMLElement, selector: string): Element[] {
-  const descendants = Array.from(root.querySelectorAll(selector))
-  return root.matches(selector) ? [root, ...descendants] : descendants
-}
-
-function isWidgetOrBlocked(element: Element): boolean {
-  return element.closest(`#${WIDGET_HOST_ID}`) !== null || element.closest(`.${BLOCK_CLASS}`) !== null
-}
-
-function addRedaction(
-  redactions: Rect[],
-  rect: DOMRect,
-  offset: { x: number; y: number },
-  padding = 0,
-): void {
-  if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite)) {
-    throw new Error('Invalid privacy redaction geometry')
-  }
-  if (rect.width <= 0 || rect.height <= 0) return
-  redactions.push({
-    left: rect.left + offset.x - padding,
-    top: rect.top + offset.y - padding,
-    width: rect.width + padding * 2,
-    height: rect.height + padding * 2,
-  })
 }
 
 function drawStroke(
@@ -537,7 +454,6 @@ function drawStroke(
 // smaller instead of not at all; bakeScreenshot derives its scale from the
 // returned bitmap, so annotations follow along.
 const MAX_CAPTURE_PIXELS = 16_000_000
-const REDACTION_PADDING_PX = 2
 
 function capturePixelRatio(metrics: Rect): number {
   const total = metrics.width * metrics.height

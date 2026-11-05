@@ -32,6 +32,38 @@ describe('filterSensitiveText', () => {
     expect(filterSensitiveText('Open https://%?token=short-secret#confirm'))
       .toBe('Open [Filtered]')
   })
+
+  // FB-16: this settings help text was masked in screenshots because the URL
+  // pattern ran to the next whitespace — through the whole Chinese sentence.
+  it('keeps prose that quotes an example URL, CJK text after it included', () => {
+    const input = 'example.com 或 https://example.com/…；小组件只会在此域名上运行'
+
+    expect(filterSensitiveText(input)).toBe(input)
+  })
+
+  it.each([
+    ['Open https://example.com/reset?token=secret。然后登录', 'Open https://example.com/reset。然后登录'],
+    ['See <https://example.com/a?b=1> and (https://example.com/c#frag).', 'See <https://example.com/a> and (https://example.com/c).'],
+    ['Go to https://example.com/x?token=1\nnext', 'Go to https://example.com/x\nnext'],
+  ])('stops a URL where the surrounding text resumes in %s', (input, expected) => {
+    expect(filterSensitiveText(input)).toBe(expected)
+  })
+
+  it.each([
+    'Docs: https://Example.com/Path/',
+    'Home https://example.com',
+    'Local http://localhost:3000/p/demo?',
+  ])('keeps a URL with nothing to redact verbatim: %s', (input) => {
+    expect(filterSensitiveText(input)).toBe(input)
+  })
+
+  it.each([
+    ['https://user:pw@example.com/x', 'https://example.com/x'],
+    ['https://example.com/x#access_token=abc', 'https://example.com/x'],
+    ['https://example.com/?code=abc', 'https://example.com/'],
+  ])('drops credentials, query and fragment from %s', (input, expected) => {
+    expect(filterSensitiveText(input)).toBe(expected)
+  })
 })
 
 describe('sanitizeUrl', () => {
