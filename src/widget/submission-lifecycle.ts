@@ -1,4 +1,4 @@
-import { bakeAnnotatedScreenshot, captureBaseScreenshot, warmFontEmbedCss } from '../screenshot/capture'
+import { bakeAnnotatedScreenshot, captureBaseScreenshot, screenshotAnnotationOffsets, warmFontEmbedCss } from '../screenshot/capture'
 import type { BaseScreenshot } from '../screenshot/capture'
 import { collectSessionRecordings } from '../context/session-recordings'
 import { collectPageContext } from '../context/collector'
@@ -266,9 +266,11 @@ export class SubmissionLifecycle {
             ? await baseCapture
             : await captureBaseScreenshot(resolver, controller.signal)
           if (controller.signal.aborted || submissionAttempt !== this.submissionAttempt || !base) return
-          const screenshot = await bakeAnnotatedScreenshot(base, annotation ? [annotation] : [], this.deps.brandColors)
+          const annotations = annotation ? [annotation] : []
+          const offsets = screenshotAnnotationOffsets(base, annotations)
+          const screenshot = await bakeAnnotatedScreenshot(base, annotations, this.deps.brandColors, offsets)
           if (controller.signal.aborted || submissionAttempt !== this.submissionAttempt || !screenshot) return
-          await this.deps.apiClient.uploadScreenshot(submission.id, submission.token, screenshot, controller.signal)
+          await this.deps.apiClient.uploadScreenshot(submission.id, submission.token, screenshot, controller.signal, offsets)
         } catch { /* screenshot is best-effort */ }
       })()
       const trackedTask = screenshotTask.finally(() => {

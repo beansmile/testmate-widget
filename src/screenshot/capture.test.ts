@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toJpeg } from 'html-to-image'
-import { captureScreenshot, captureBaseScreenshot } from './capture'
+import { bakeAnnotatedScreenshot, captureScreenshot, captureBaseScreenshot, screenshotAnnotationOffsets } from './capture'
 import { parsePathPolylines } from './svg-path'
 import { getFontEmbedCSS } from 'html-to-image'
 
@@ -129,6 +129,84 @@ describe('captureScreenshot', () => {
       expect(filter(above)).toBe(true)
       // Zero-sized nodes carry styles, not pixels — they must survive the cull.
       expect(filter(sizeless)).toBe(true)
+    })
+
+    // FB-17: html-to-image inlines each element's computed height, so a table
+    // that lost its below-the-fold rows kept its full height and stretched the
+    // rows that remained. Every vertical-align: middle cell then drew its
+    // content lower than on screen (82px in the browser reproduction of a
+    // 30-row table, ~48px in the reported screenshot) while the baked mark
+    // stayed at the reporter's coordinates, a line above its target.
+    it('keeps table rows below the viewport so the rows above are not stretched', async () => {
+      sizeBody(1280, 6000)
+      document.body.innerHTML = '<table><tbody id="tbody"><tr id="row"><td id="cell"><span id="chip">chip</span></td></tr></tbody></table>'
+      const row = document.querySelector('#row')!
+      const cell = document.querySelector('#cell')!
+      const chip = document.querySelector('#chip')!
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(0, 3000, 800, 100))
+      vi.spyOn(cell, 'getBoundingClientRect').mockReturnValue(rect(0, 3000, 800, 100))
+      vi.spyOn(chip, 'getBoundingClientRect').mockReturnValue(rect(10, 3040, 40, 16))
+
+      await captureScreenshot()
+
+      const { filter } = toJpegMock.mock.calls[0][1] as { filter: (node: Node) => boolean }
+      // The row's parent is a row group: culling it re-lays-out the table.
+      expect(filter(row)).toBe(true)
+      // A row keeps its cells for the same reason.
+      expect(filter(cell)).toBe(true)
+      // Content of a cell that starts below the cut-off can go: whatever the
+      // cell re-lays-out is below the cut-off too.
+      expect(filter(chip)).toBe(false)
+    })
+
+    it('keeps the below-the-fold children of a flex box that reaches into the capture', async () => {
+      sizeBody(1280, 6000)
+      document.body.innerHTML = '<div id="flex" style="display: flex; flex-direction: column"><div id="grow"></div><div id="tail"></div></div>'
+        + '<div id="grid" style="display: grid"><div id="cell"></div></div>'
+      const flex = document.querySelector('#flex')!
+      const tail = document.querySelector('#tail')!
+      const grid = document.querySelector('#grid')!
+      const gridCell = document.querySelector('#cell')!
+      vi.spyOn(flex, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 800, 3000))
+      vi.spyOn(tail, 'getBoundingClientRect').mockReturnValue(rect(0, 2000, 800, 1000))
+      vi.spyOn(grid, 'getBoundingClientRect').mockReturnValue(rect(0, 3000, 800, 1000))
+      vi.spyOn(gridCell, 'getBoundingClientRect').mockReturnValue(rect(0, 3200, 800, 100))
+
+      await captureScreenshot()
+
+      const { filter } = toJpegMock.mock.calls[0][1] as { filter: (node: Node) => boolean }
+      // A flex-grow or justify-content sibling above would take its space
+      // (250px of drift in the browser reproduction).
+      expect(filter(tail)).toBe(true)
+      // This grid starts below the cut-off itself, so its re-layout is invisible.
+      expect(filter(gridCell)).toBe(false)
+    })
+  })
+
+  describe('screenshotAnnotationOffsets', () => {
+    const base = { dataUrl: 'data:image/jpeg;base64,/9j/AA==', metrics: rect(0, 0, 1280, 720), redactions: [], pageScroll: { x: 0, y: 200 } }
+
+    it('is the anchor brought back to the frame the capture was measured in', () => {
+      expect(screenshotAnnotationOffsets(base, [
+        { type: 'pin', x: 1, y: 2, captureOffsetX: 0, captureOffsetY: 248 },
+        { type: 'draw', x: 1, y: 2, drawPath: 'M 0 0 L 1 1', captureOffsetX: 3, captureOffsetY: 200 },
+      ])).toEqual([{ x: 0, y: 48 }, { x: 3, y: 0 }])
+    })
+
+    it('is exactly what the bake moves the mark by', async () => {
+      vi.stubGlobal('Image', ViewportImage)
+      const context = mockCanvasContext()
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+        () => context as unknown as CanvasRenderingContext2D,
+      )
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(720)
+      const annotation = { type: 'pin' as const, x: 600, y: 300, captureOffsetX: 0, captureOffsetY: 248 }
+
+      await bakeAnnotatedScreenshot(base, [annotation])
+
+      const [offset] = screenshotAnnotationOffsets(base, [annotation])
+      expect(context.arc).toHaveBeenCalledWith(600 + offset.x, 300 + offset.y, 11, 0, Math.PI * 2)
     })
   })
 

@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SubmissionLifecycle, IDLE_CAPTURE_MS, SCREENSHOT_WAIT_MS, AttachmentUploadError } from './submission-lifecycle'
 import { UploadRejectedError } from '../api/client'
-import { captureBaseScreenshot } from '../screenshot/capture'
+import { bakeAnnotatedScreenshot, captureBaseScreenshot, screenshotAnnotationOffsets } from '../screenshot/capture'
 import type { ApiClient } from '../api/client'
 import type { SubmissionLifecycleDeps, SubmissionLifecycleHost } from './submission-lifecycle'
 
 vi.mock('../screenshot/capture', () => ({
   bakeAnnotatedScreenshot: vi.fn(),
   captureBaseScreenshot: vi.fn(),
+  screenshotAnnotationOffsets: vi.fn(() => []),
   warmFontEmbedCss: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -466,6 +467,33 @@ describe('SubmissionLifecycle reporter images', () => {
     await lifecycle.finalize()
     expect(uploadImage).not.toHaveBeenCalled()
     expect(apiClient.finalizeSubmissionSession).toHaveBeenCalledTimes(1)
+  })
+
+  // The board overlays its own mark on the uploaded image and cannot know the
+  // capture's page scroll, so the offsets the bake used travel with the image.
+  // Bake and upload must get the same values, or overlay and baked mark split.
+  it('uploads the offsets the bake used alongside the screenshot', async () => {
+    const base = { dataUrl: 'data:image/jpeg;base64,', metrics: { left: 0, top: 0, width: 1280, height: 720 }, redactions: [], pageScroll: { x: 0, y: 200 } }
+    const offsets = [{ x: 0, y: 48 }]
+    const blob = new Blob(['jpeg'], { type: 'image/jpeg' })
+    vi.mocked(captureBaseScreenshot).mockResolvedValue(base)
+    vi.mocked(screenshotAnnotationOffsets).mockReturnValueOnce(offsets)
+    vi.mocked(bakeAnnotatedScreenshot).mockResolvedValue(blob)
+    const uploadScreenshot = vi.fn().mockResolvedValue(undefined)
+    const apiClient = {
+      createSubmissionSession: vi.fn().mockResolvedValue(session),
+      resolveScreenshotResourceUrl: vi.fn(),
+      uploadScreenshot,
+    } as unknown as ApiClient
+    const lifecycle = buildLifecycle(apiClient)
+    const annotation = { type: 'pin' as const, x: 10, y: 20, captureOffsetX: 0, captureOffsetY: 248 }
+
+    await lifecycle.start('x', annotation, undefined)
+    await vi.waitFor(() => expect(uploadScreenshot).toHaveBeenCalledTimes(1))
+
+    expect(screenshotAnnotationOffsets).toHaveBeenCalledWith(base, [annotation])
+    expect(bakeAnnotatedScreenshot).toHaveBeenCalledWith(base, [annotation], undefined, offsets)
+    expect(uploadScreenshot).toHaveBeenCalledWith(session.id, session.token, blob, expect.any(AbortSignal), offsets)
   })
 })
 

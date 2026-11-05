@@ -148,8 +148,10 @@ export async function captureBaseScreenshot(
         // runs — and a live rect.top is measured against wherever the page is
         // by then. Re-expressing it against the scroll this capture was framed
         // at keeps the cull decision stable however late the walk reads it.
+        const cutoff = metrics.height + CULL_MARGIN_PX
         const topInCapture = rect.top + window.scrollY - pageScroll.y
-        return topInCapture <= metrics.height + CULL_MARGIN_PX
+        if (topInCapture <= cutoff) return true
+        return cullingMovesVisibleContent(node, cutoff, pageScroll.y)
       },
     })
     if (signal?.aborted) return null
@@ -157,6 +159,44 @@ export async function captureBaseScreenshot(
   } catch {
     return null
   }
+}
+
+// Display values whose children are laid out one after another in normal flow:
+// taking a child out of the bottom of such a box cannot move anything placed
+// before it. Every other layout can, and html-to-image makes it worse: it
+// inlines each element's computed height, so the parent keeps its full live
+// size and hands the space the culled children leave behind to the ones that
+// remain. The case that shipped (FB-17): a 30-row table whose rows below the
+// viewport were culled. The table kept its full height, the surviving rows
+// were stretched to share it, and every `vertical-align: middle` cell drew its
+// content tens of pixels lower than on screen, so the baked mark, at the
+// reporter's true coordinates, circled the line above its target. Flex
+// (`justify-content`, `flex-grow`), grid (`fr`, `align-content`) and
+// multi-column boxes redistribute the same way.
+const FLOW_DISPLAYS = new Set(['block', 'flow-root', 'list-item', 'inline'])
+// Table structure: a row with its cells culled, or a table with its rows
+// culled, is laid out anew even when it sits wholly below the cut-off.
+const TABLE_STRUCTURE_DISPLAY = /^(inline-)?table(-row|-row-group|-header-group|-footer-group|-column|-column-group)?$/
+
+/**
+ * Whether dropping `node` (which starts below the cut-off) from the clone could
+ * move content inside the capture.
+ *
+ * Safe when its parent lays children out in normal flow (nothing before it
+ * depends on it), or when the parent itself starts below the cut-off, since
+ * whatever the parent then re-lays-out is below the cut-off too. A parent that
+ * is table structure or inline-level is never safe: the first re-lays-out its
+ * columns and row heights across the whole table, the second moves its
+ * baseline and with it the line it sits on.
+ */
+function cullingMovesVisibleContent(node: Element, cutoff: number, framedScrollY: number): boolean {
+  const parent = node.parentElement
+  if (!parent || parent === document.documentElement) return false
+  const style = getComputedStyle(parent)
+  if (FLOW_DISPLAYS.has(style.display) && (style.columnCount || 'auto') === 'auto') return false
+  if (TABLE_STRUCTURE_DISPLAY.test(style.display) || style.display.startsWith('inline')) return true
+  const parentTop = parent.getBoundingClientRect().top + window.scrollY - framedScrollY
+  return parentTop <= cutoff
 }
 
 interface CaptureFrame {
@@ -222,14 +262,29 @@ function isTransparentColor(color: string): boolean {
   return normalized === 'transparent' || /^rgba\(\d+,\d+,\d+,0(\.0+)?\)$/.test(normalized)
 }
 
+/**
+ * Where each annotation is moved to be baked into this capture: add it to the
+ * annotation's x/y (and targetRect, drawPath) to get the bitmap's CSS pixels.
+ *
+ * The board draws its own overlay over the uploaded image and cannot work this
+ * out from the annotation alone — the capture's page scroll is not on the wire
+ * — so the widget sends these alongside the screenshot. Compute them once and
+ * hand the same values to bakeAnnotatedScreenshot, so the overlay and the baked
+ * mark cannot disagree.
+ */
+export function screenshotAnnotationOffsets(base: BaseScreenshot, annotations: Annotation[]): ScrollOffset[] {
+  return annotations.map(annotation => screenshotOffset(annotation, base.pageScroll))
+}
+
 export async function bakeAnnotatedScreenshot(
   base: BaseScreenshot,
   annotations: Annotation[] = [],
   brandColors?: WidgetBrandColors,
+  offsets: ScrollOffset[] = screenshotAnnotationOffsets(base, annotations),
 ): Promise<Blob | null> {
   try {
     const screenshotAnnotations = annotations.map(
-      annotation => translateAnnotationForScreenshot(annotation, base.pageScroll),
+      (annotation, i) => translateAnnotationForScreenshot(annotation, offsets[i] ?? { x: 0, y: 0 }),
     )
     return await bakeScreenshot(base.dataUrl, screenshotAnnotations, base.metrics, base.redactions, brandColors)
   } catch {
@@ -257,8 +312,7 @@ export async function captureScreenshot(
 // shot: its strokes land off-canvas and the canvas clips them silently. That is
 // the honest picture (the marked content was not captured), and the wire
 // annotation data still carries the mark for the board.
-function translateAnnotationForScreenshot(annotation: Annotation, pageScroll: ScrollOffset): Annotation {
-  const offset = screenshotOffset(annotation, pageScroll)
+function translateAnnotationForScreenshot(annotation: Annotation, offset: ScrollOffset): Annotation {
   if (offset.x === 0 && offset.y === 0) return annotation
 
   return {
@@ -407,7 +461,8 @@ function collectPrivacyRedactions(root: HTMLElement): Rect[] {
 // translateAnnotationForScreenshot. A border box moves with ancestor scroll
 // only (an element's own scrollTop shifts its content, not its box), so the
 // walk starts at the parent; page scroll stays out because nestedScrollOffset
-// stops at body, whose offset captureMetrics already carries.
+// skips the document's scrolling element, whose offset captureMetrics already
+// carries.
 function cloneScrollOffset(element: Element): { x: number; y: number } {
   return nestedScrollOffset(parentElement(element))
 }
