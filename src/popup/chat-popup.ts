@@ -75,6 +75,7 @@ export class ChatPopup {
   private el: HTMLDivElement
   private sheet: SheetLayout
   private focusTrap: FocusTrap
+  private shadowRoot: ShadowRoot
   private messagesEl!: HTMLDivElement
   private composerEl!: HTMLDivElement
   private actionsEl!: HTMLDivElement
@@ -120,6 +121,12 @@ export class ChatPopup {
 
     this.bindEvents()
     this.handleEscape = this.handleEscape.bind(this)
+    // Two vantage points for one key. Keys typed inside the widget stop at its
+    // shadow root (the host page must not see them), so they never reach
+    // window — the root hears those. Keys typed while focus sits on the page
+    // never pass through the root — window hears those.
+    this.shadowRoot = shadow.root
+    this.shadowRoot.addEventListener('keydown', this.handleEscape as EventListener)
     window.addEventListener('keydown', this.handleEscape)
     this.inputEl.focus({ preventScroll: true })
   }
@@ -969,6 +976,7 @@ export class ChatPopup {
     this.clarifyAbort?.abort()
     this.clearAutoCloseTimer()
     this.releaseAttachments()
+    this.shadowRoot.removeEventListener('keydown', this.handleEscape as EventListener)
     window.removeEventListener('keydown', this.handleEscape)
     this.sheet.release()
     this.focusTrap.release()

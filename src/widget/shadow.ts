@@ -17,7 +17,34 @@ export class ShadowContainer {
     'touchend',
     'touchcancel',
     'click',
+    // Typing in a widget field is not the page's business either. A host's
+    // bubble-phase hotkeys ("/" to search, single-letter shortcuts, a modal's
+    // Tab or Escape handler on document) would otherwise act on keys the
+    // reporter meant for the composer. The widget's own document and window
+    // key listeners all run in the capture phase (Escape, scroll lock) or sit
+    // on its elements or this root, so stopping here costs them nothing.
+    'keydown',
+    'keyup',
+    'keypress',
+    'beforeinput',
+    'input',
   ] as const
+
+  // A modal on the host page — a Radix/shadcn Dialog or Sheet, a focus-trap
+  // drawer, a MUI Modal — keeps focus inside itself by listening for focus
+  // changes on document and pulling focus back whenever it lands outside. The
+  // widget lives in its own host appended to <body>, outside any such modal,
+  // so the moment a composer field takes focus the trap snatches it back and
+  // the field cannot be typed into. Stopping at the shadow root cannot help:
+  // focus-trap listens on document in the capture phase, which runs before
+  // the event ever reaches the root. Window capture runs before document
+  // capture, so that is where the page is told nothing. Focus itself still
+  // moves; only the notification is withheld.
+  //
+  // Nothing in the widget listens for focusin or focusout (its elements use
+  // focus and blur, which are separate events), so withholding these from the
+  // whole path costs the widget nothing.
+  private static readonly HOST_FOCUS_EVENTS = ['focusin', 'focusout'] as const
 
   // Readable so a component can mark the host with its own presence and have
   // :host(...) rules react — the only way CSS inside the shadow tree can be
@@ -78,6 +105,9 @@ export class ShadowContainer {
     for (const eventType of ShadowContainer.HOST_INTERACTION_EVENTS) {
       this.root.addEventListener(eventType, this.stopHostInteraction)
     }
+    for (const eventType of ShadowContainer.HOST_FOCUS_EVENTS) {
+      window.addEventListener(eventType, this.hideFocusFromHost, true)
+    }
 
     const style = document.createElement('style')
     style.textContent = cssText
@@ -104,9 +134,31 @@ export class ShadowContainer {
     event.stopPropagation()
   }
 
+  /**
+   * Whether a focus change is the widget's own: focus is entering or leaving
+   * one of its fields (the host is on the event's path), or focus is leaving a
+   * page element *for* the widget. The latter is the focusout a trap such as
+   * Radix FocusScope inspects: its relatedTarget, retargeted out of the shadow
+   * tree, is the widget host, which the trap reads as "focus escaped".
+   */
+  private isWidgetFocusEvent(event: FocusEvent): boolean {
+    if (event.composedPath().includes(this.host)) return true
+    if (event.type !== 'focusout') return false
+    const next = event.relatedTarget
+    return next instanceof Node && (next === this.host || this.host.contains(next))
+  }
+
+  private hideFocusFromHost = (event: Event): void => {
+    if (!(event instanceof FocusEvent) || !this.isWidgetFocusEvent(event)) return
+    event.stopImmediatePropagation()
+  }
+
   destroy(): void {
     for (const eventType of ShadowContainer.HOST_INTERACTION_EVENTS) {
       this.root.removeEventListener(eventType, this.stopHostInteraction)
+    }
+    for (const eventType of ShadowContainer.HOST_FOCUS_EVENTS) {
+      window.removeEventListener(eventType, this.hideFocusFromHost, true)
     }
 
     if (!this.ownsHost) {
