@@ -33,6 +33,11 @@ describe('ShadowContainer', () => {
     'touchend',
     'touchcancel',
     'click',
+    'keydown',
+    'keyup',
+    'keypress',
+    'beforeinput',
+    'input',
   ])(
     'keeps %s inside the widget so host dismiss handlers do not run',
     (eventType) => {

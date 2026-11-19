@@ -7,9 +7,13 @@
  * promises assistive tech, and restoring the opener afterwards puts a keyboard
  * user back where they were instead of at the top of the document.
  *
- * The Tab handler lives on the card element, not on document or window: it can
- * only ever see keys typed while focus is inside the card, and removing the
- * card's own listener is a teardown the host page cannot be stranded by.
+ * The Tab handler listens on window in the capture phase, but acts only on
+ * keys typed while focus is inside the card (the card is on the event's
+ * path), so it never touches the host page's own Tab handling. Window capture
+ * is the one place that runs before a host modal's focus trap: focus-trap
+ * listens for Tab on document in the capture phase and would otherwise yank
+ * focus into its own container on every Tab typed in the card. The card
+ * routes its Tab and stops it there, so the page never sees it.
  */
 export interface FocusTrap {
   /**
@@ -38,6 +42,8 @@ export function trapFocus(card: HTMLElement): FocusTrap {
 
   const handleKeydown = (event: KeyboardEvent): void => {
     if (event.key !== 'Tab') return
+    if (!event.composedPath().includes(card)) return
+    event.stopPropagation()
     const tabbables = Array.from(card.querySelectorAll<HTMLElement>(TABBABLE_SELECTOR))
       .filter(el => !el.hidden)
     if (tabbables.length === 0) return
@@ -61,11 +67,11 @@ export function trapFocus(card: HTMLElement): FocusTrap {
     }
   }
 
-  card.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keydown', handleKeydown, true)
 
   return {
     release(): void {
-      card.removeEventListener('keydown', handleKeydown)
+      window.removeEventListener('keydown', handleKeydown, true)
     },
     restoreFocus(): void {
       // A detached opener would silently drop focus on <body>, so only reach
